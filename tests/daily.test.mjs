@@ -5,6 +5,7 @@ import {registerHooks} from 'node:module';
 import {readFileSync,readdirSync,existsSync} from 'node:fs';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import path from 'node:path';
+import {createHash} from 'node:crypto';
 const root=fileURLToPath(new URL('../',import.meta.url));
 const sql=new DatabaseSync(':memory:');
 for(const f of readdirSync(path.join(root,'drizzle')).filter(x=>x.endsWith('.sql')).sort())sql.exec(readFileSync(path.join(root,'drizzle',f),'utf8'));
@@ -17,7 +18,7 @@ const hook=registerHooks({resolve(specifier,context,next){
  if(context.parentURL?.endsWith('/lib/daily.ts')&&specifier==='./earnings')return {url:'data:text/javascript,export async function refreshEarnings(){return []}',shortCircuit:true};
  if(specifier.startsWith('.')&&context.parentURL?.startsWith('file:')){const url=new URL(specifier,context.parentURL);if(!path.extname(fileURLToPath(url))&&existsSync(fileURLToPath(url)+'.ts'))return {url:pathToFileURL(fileURLToPath(url)+'.ts').href,shortCircuit:true};}return next(specifier,context);
 }});
-const {runDaily}=await import('../lib/daily.ts');
+const {runDaily,generateReport,readReport}=await import('../lib/daily.ts');
 const originalFetch=globalThis.fetch;
 globalThis.fetch=async(url,options)=>{assert.equal(new URL(url).hostname,'open.feishu.cn');assert.equal(options.redirect,'manual');sends++;return Response.json({code:0});};
 const config={FEISHU_SEND_ENABLED:'true',FEISHU_WEBHOOK_URL:'https://open.feishu.cn/open-apis/bot/v2/hook/test-only',SITE_BASE_URL:'https://desk.example.com'};
@@ -31,3 +32,15 @@ test('未到14点及北京时间周一不访问行情和机器人',async()=>{see
 test('SPY未达到目标日期时跳过，不把旧数据当作新交易日',async()=>{seed('2026-09-29');const r=await runDaily(config,new Date('2026-10-01T06:00Z'));assert.equal(r.status,'skipped');assert.equal(sends,0);assert.equal(sql.prepare('SELECT COUNT(*) AS n FROM reports').get().n,0);});
 test('14点发送冻结日报，14点10分重试复用且不重复发',async()=>{seed('2026-09-29');assert.equal((await runDaily(config,new Date('2026-09-30T06:00Z'))).status,'ready');assert.equal(sends,1);assert.equal(sql.prepare('SELECT status FROM deliveries').get().status,'sent');assert.equal((await runDaily(config,new Date('2026-09-30T06:10Z'))).status,'ready');assert.equal(sends,1);assert.equal(syncs,1);});
 test('缺股票当天评分时只保存不完整预览，不自动发送',async()=>{seed('2026-09-29');sql.prepare("DELETE FROM scores WHERE date='2026-09-29'").run();assert.equal((await runDaily(config,new Date('2026-09-30T06:00Z'))).status,'partial');assert.equal(sends,0);assert.equal(sql.prepare('SELECT complete FROM reports').get().complete,0);});
+
+test('卡片格式升级生成新快照，保留已发送旧卡片且重复生成复用新快照',async()=>{
+ seed('2026-09-29');const current=await generateReport(config);
+ const {id,generatedAt,...facts}=current.snapshot;
+ const legacyId=createHash('sha256').update(JSON.stringify({facts,base:config.SITE_BASE_URL})).digest('hex');
+ const legacyCard={schema:'2.0',body:{elements:[{tag:'collapsible_panel',expanded:false}]}};
+ sql.prepare('DELETE FROM reports WHERE id=?').run(id);
+ sql.prepare('INSERT INTO reports(id,trade_date,created_at,payload,card,complete) VALUES (?,?,?,?,?,1)').run(legacyId,facts.tradeDate,generatedAt,JSON.stringify({...current.snapshot,id:legacyId}),JSON.stringify(legacyCard));
+ const next=await generateReport(config);assert.notEqual(next.snapshot.id,legacyId);assert.equal(next.snapshot.id,id);
+ assert.doesNotMatch(JSON.stringify(next.card),/collapsible_panel/);assert.deepEqual((await readReport(legacyId)).card,legacyCard);
+ assert.equal((await generateReport(config)).snapshot.id,id);
+});

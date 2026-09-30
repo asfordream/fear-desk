@@ -3,7 +3,7 @@ import {ensureInitial,syncAll} from './store';
 import {refreshEarnings} from './earnings';
 import {readEarnings} from './earnings-read';
 import {VERSION,type Score} from './engine';
-import {summarize,renderCard,publicBase,beijingReportCutoff,type ReportStock,type ReportSnapshot} from './report';
+import {summarize,renderCard,CARD_FORMAT_VERSION,publicBase,beijingReportCutoff,type ReportStock,type ReportSnapshot} from './report';
 import {postCard,validateWebhook,type BotConfig} from './feishu';
 
 const db=()=>getRawDb();
@@ -18,7 +18,7 @@ export async function generateReport(config:BotConfig={},expectedDate?:string){
  for(const item of items){const history=(await db().prepare('SELECT date,payload FROM scores WHERE symbol=? AND date IN (?,?) ORDER BY date DESC').bind(item.symbol,tradeDate,previousDate).all<{date:string;payload:string}>()).results;stocks.push({symbol:item.symbol,name:item.name,status:item.status,eventDate:item.event_date,earningsInfo:await readEarnings(item.symbol),latest:history.find(s=>s.date===tradeDate)?JSON.parse(history.find(s=>s.date===tradeDate)!.payload) as Score:null,previous:history.find(s=>s.date===previousDate)?JSON.parse(history.find(s=>s.date===previousDate)!.payload) as Score:null});}
  const watchlistHash=await digest(items.map(x=>({symbol:x.symbol,name:x.name,eventDate:x.event_date})));
  const facts={tradeDate,previousDate,version:VERSION,watchlistHash,stocks,summary:summarize(stocks,tradeDate,previousDate)};
- const base=publicBase(config.SITE_BASE_URL);const id=await digest({facts,base});
+ const base=publicBase(config.SITE_BASE_URL);const id=await digest({facts,base,cardFormatVersion:CARD_FORMAT_VERSION});
  const report:ReportSnapshot={id,generatedAt:new Date().toISOString(),...facts};const card=renderCard(report,base);
  await db().prepare('INSERT INTO reports(id,trade_date,created_at,payload,card,complete) VALUES (?,?,?,?,?,?) ON CONFLICT(id) DO NOTHING').bind(id,tradeDate,report.generatedAt,JSON.stringify(report),JSON.stringify(card),report.summary.complete?1:0).run();
  return readReport(id);
