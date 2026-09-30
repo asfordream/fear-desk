@@ -124,3 +124,8 @@ The portable build runs Vinext directly without a host `timeout` command. The ma
 
 - [vinext Documentation](https://github.com/cloudflare/vinext)
 - [Drizzle D1 Guide](https://orm.drizzle.team/docs/get-started/d1-new)
+# 每日运行与飞书日报
+
+`/reports` 提供数据库日报快照、飞书卡片内容预览、JSON 导出及任务状态。详细配置见 [飞书接入说明](docs/feishu-setup.md)。新增迁移 `drizzle/0001_lowly_junta.sql`、`drizzle/0002_panoramic_shockwave.sql` 必须在已应用0000的库依次执行；保存原有行情和人工财报登记。
+
+Worker带定时入口及UTC Cron配置；服务器默认禁止发送。需要实际部署、D1迁移、机器人秘密变量及公网链接配置后，才能启用每天群推送。本地预览不代表线上定时任务已运行。
