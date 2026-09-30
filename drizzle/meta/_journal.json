@@ -1,0 +1,41 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1790750854144,
+      "tag": "0000_loving_magik",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1790758318548,
+      "tag": "0001_lowly_junta",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1790759702514,
+      "tag": "0002_panoramic_shockwave",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1790768451991,
+      "tag": "0003_lame_shinobi_shaw",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1790769759466,
+      "tag": "0004_good_nextwave",
+      "breakpoints": true
+    }
+  ]
+}
