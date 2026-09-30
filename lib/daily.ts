@@ -3,7 +3,7 @@ import {ensureInitial,syncAll} from './store';
 import {refreshEarnings} from './earnings';
 import {readEarnings} from './earnings-read';
 import {VERSION,type Score} from './engine';
-import {summarize,renderCard,publicBase,nyCutoff,type ReportStock,type ReportSnapshot} from './report';
+import {summarize,renderCard,publicBase,beijingReportCutoff,type ReportStock,type ReportSnapshot} from './report';
 import {postCard,validateWebhook,type BotConfig} from './feishu';
 
 const db=()=>getRawDb();
@@ -28,7 +28,7 @@ export async function reportStatus(config:BotConfig){
  const reports=(await db().prepare('SELECT id,trade_date,created_at,complete FROM reports ORDER BY created_at DESC LIMIT 20').all()).results;
  const jobs=(await db().prepare('SELECT * FROM job_runs ORDER BY started_at DESC LIMIT 8').all()).results;
  let webhookValid=false;try{webhookValid=!!config.FEISHU_WEBHOOK_URL&&!!validateWebhook(config.FEISHU_WEBHOOK_URL);}catch{/* Only expose validity, never credentials. */}
- return {reports,jobs,config:{webhookConfigured:webhookValid,signingConfigured:!!config.FEISHU_SIGNING_SECRET,sendEnabled:config.FEISHU_SEND_ENABLED==='true',publicLinks:!!publicBase(config.SITE_BASE_URL),earningsConfigured:true,earningsSource:'公司公告优先 / Yahoo免费预计日历',finnhubConfigured:!!config.FINNHUB_API_KEY,schedule:'工作日纽约16:30后（北京时间次日04:30/05:30；失败后再尝试）',deployment:'定时触发需部署启用，本地页面不代表线上任务已运行'}};
+ return {reports,jobs,config:{webhookConfigured:webhookValid,signingConfigured:!!config.FEISHU_SIGNING_SECRET,sendEnabled:config.FEISHU_SEND_ENABLED==='true',publicLinks:!!publicBase(config.SITE_BASE_URL),earningsConfigured:true,earningsSource:'公司公告优先 / Yahoo免费预计日历',finnhubConfigured:!!config.FINNHUB_API_KEY,schedule:'北京时间14:00；对应前一美股交易日收盘，通常周二至周六，休市跳过；失败14:10/14:20再尝试',deployment:'定时触发需部署启用，本地页面不代表线上任务已运行'}};
 }
 export async function sendReport(id:string,config:BotConfig){
  if(config.FEISHU_SEND_ENABLED!=='true'||!config.FEISHU_WEBHOOK_URL)throw new Error('机器人尚未启用，当前仅提供预览');validateWebhook(config.FEISHU_WEBHOOK_URL);
@@ -44,7 +44,7 @@ export async function sendReport(id:string,config:BotConfig){
  await db().prepare('UPDATE deliveries SET status=?,updated_at=?,message=? WHERE report_id=?').bind(result.status,new Date().toISOString(),result.message,id).run();return result;
 }
 export async function runDaily(config:BotConfig,now=new Date()){
- const cutoff=nyCutoff(now);if(!cutoff.ready)return {status:'skipped',message:'纽约尚未到工作日16:30，未更新'};
+ const cutoff=beijingReportCutoff(now);if(!cutoff.ready)return {status:'skipped',message:'未到北京时间14:00，或前一天为美股周末；未更新'};
  const token=crypto.randomUUID(),startedAt=new Date().toISOString(),lease=Date.now()+14*60_000;
  const lock=await db().prepare("INSERT INTO workflow_locks(name,token,until) VALUES ('daily',?,?) ON CONFLICT(name) DO UPDATE SET token=excluded.token,until=excluded.until WHERE workflow_locks.until<?").bind(token,lease,Date.now()).run();if(!lock.meta.changes)return {status:'busy',message:'每日任务正在运行'};
  await db().prepare("INSERT INTO job_runs(id,started_at,trade_date,status) VALUES (?,?,?,'running')").bind(token,startedAt,cutoff.date).run();

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createHmac} from 'node:crypto';
-import {summarize,renderCard,nyCutoff,publicBase,stockDelta} from '../lib/report.ts';
+import {summarize,renderCard,nyCutoff,beijingReportCutoff,publicBase,stockDelta} from '../lib/report.ts';
 import {signBot,postCard,validateWebhook} from '../lib/feishu.ts';
 const score=(date,value,total=value,version='v1')=>({date,score:value,total,base:total,groups:[50,50,50,50],price:100,priceChange:0,form:'中性',assessment:'未通过 · 恐慌值低于70',earnings:'财报日期未接入',version,metrics:{}});
 const stock=(symbol,value,total=value)=>({symbol,name:symbol,status:'ready',eventDate:null,latest:score('2026-09-29',value,total),previous:score('2026-09-28',value-3,total-3)});
@@ -17,3 +17,19 @@ test('发送默认关闭，明确确认才成功，超时或未知响应保持un
 test('UTF8卡片大小先检查，不向网络提交',async()=>{let called=false;await assert.rejects(postCard({content:'股'.repeat(10000)},config,async()=>{called=true;}),/体积/);assert.equal(called,false);});
 
 test('飞书发送使用Worker支持的manual重定向模式，不跟随到其他地址',async()=>{const result=await postCard({},config,async(url,options)=>{assert.equal(options.redirect,'manual');return Response.json({code:0});});assert.equal(result.status,'sent');assert.equal((await postCard({},config,async()=>new Response(null,{status:302,headers:{location:'https://other.example/'}}))).status,'failed');});
+
+test('北京时间14点边界、周一跳过、周六对应周五及冬夏令时间不变',()=>{
+ assert.deepEqual(beijingReportCutoff(new Date('2026-09-30T05:59:00Z')),{date:'2026-09-29',ready:false});
+ assert.deepEqual(beijingReportCutoff(new Date('2026-09-30T06:00:00Z')),{date:'2026-09-29',ready:true});
+ assert.deepEqual(beijingReportCutoff(new Date('2026-10-03T06:00:00Z')),{date:'2026-10-02',ready:true});
+ assert.equal(beijingReportCutoff(new Date('2026-10-04T06:00:00Z')).ready,false);
+ assert.equal(beijingReportCutoff(new Date('2026-10-05T06:00:00Z')).ready,false);
+ assert.deepEqual(beijingReportCutoff(new Date('2026-12-01T06:00:00Z')),{date:'2026-11-30',ready:true});
+ assert.deepEqual(beijingReportCutoff(new Date('2027-01-01T06:00:00Z')),{date:'2026-12-31',ready:true});
+});
+test('飞书展开分区包含超过10只的全部标的，45只卡片在发送体积限制内',async()=>{
+ const stocks=Array.from({length:45},(_,i)=>stock('TEST'+i,45));
+ const r={id:'a'.repeat(64),tradeDate:'2026-09-29',previousDate:'2026-09-28',generatedAt:'2026-09-30T06:00Z',version:'v1',watchlistHash:'x',stocks,summary:summarize(stocks,'2026-09-29','2026-09-28')};
+ const card=renderCard(r,'https://desk.example.com');assert.match(JSON.stringify(card),/TEST44/);
+ let called=false;assert.equal((await postCard(card,config,async()=>{called=true;return Response.json({code:0});})).status,'sent');assert.equal(called,true);
+});
