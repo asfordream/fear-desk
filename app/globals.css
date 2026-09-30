@@ -254,3 +254,13 @@ footer{font-size:12px;color:var(--desk-muted);display:flex;justify-content:space
 .mobile-score>span.fear-up{color:var(--fear-bottom)}.mobile-score>span.fear-down{color:var(--desk-accent)}
 [data-slot="dialog-close"]{background:transparent;color:var(--desk-muted);border-color:transparent;border-radius:6px;min-width:44px;min-height:44px}
 [data-slot="dialog-close"]:hover{background:var(--desk-soft);color:var(--desk-accent)}
+/* Compact tablet widths use the same complete record layout as phones. */
+@media(min-width:761px) and (max-width:900px){
+ .desktop-watchlist{display:none}.mobile-watchlist{display:block;border-top:1px solid var(--desk-line)}
+ .stock-item{padding:18px 0 4px;border-bottom:1px solid var(--desk-line)}
+ .stock-item-main{display:flex;align-items:center;justify-content:space-between;gap:16px}
+ .mobile-ticker{display:flex;gap:5px;align-items:center;font-size:18px;font-weight:700;min-height:44px;color:var(--desk-accent)}.mobile-ticker:visited{color:#4c645d}
+ .mobile-score{display:flex;align-items:baseline;gap:12px;font-variant-numeric:tabular-nums}.mobile-score strong{font-size:30px;font-weight:650}.mobile-score span{font-size:14px;color:var(--desk-muted)}
+ .mobile-company{font-size:13px;overflow-wrap:anywhere}.mobile-stock-fields{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin:16px 0 4px}.mobile-stock-fields dt{font-size:12px;color:var(--desk-muted);margin-bottom:6px}.mobile-stock-fields dd{margin:0;font-size:14px;font-variant-numeric:tabular-nums}.mobile-stock-fields .pill{padding:3px 7px}
+ .stock-item-foot{display:flex;justify-content:space-between;align-items:center;gap:12px;font-size:12px;color:var(--desk-muted)}.stock-item-foot>span{white-space:nowrap}
+}
