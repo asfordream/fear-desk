@@ -1,2 +1,2 @@
-import {addSymbol} from '@/lib/store';import {ticker} from '@/lib/provider';import {access,success,failure} from '@/lib/http';
-export async function POST(req:Request){try{await access(req);const parsed=await req.json();if(!parsed||typeof parsed!=='object')throw new Error('请求格式无效');const body=parsed as Record<string,unknown>;return success(await addSymbol(ticker(body.symbol)));}catch(e){return failure(e);}}
+import {env} from 'cloudflare:workers';import {refreshEarnings} from '@/lib/earnings';import {addSymbol} from '@/lib/store';import {ticker} from '@/lib/provider';import {access,success,failure} from '@/lib/http';
+export async function POST(req:Request){try{await access(req);const parsed=await req.json();if(!parsed||typeof parsed!=='object')throw new Error('请求格式无效');const body=parsed as Record<string,unknown>;const symbol=ticker(body.symbol);const result=await addSymbol(symbol);await refreshEarnings(env,symbol);return success(result);}catch(e){return failure(e);}}

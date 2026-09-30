@@ -129,3 +129,13 @@ The portable build runs Vinext directly without a host `timeout` command. The ma
 `/reports` 提供数据库日报快照、飞书卡片内容预览、JSON 导出及任务状态。详细配置见 [飞书接入说明](docs/feishu-setup.md)。新增迁移 `drizzle/0001_lowly_junta.sql`、`drizzle/0002_panoramic_shockwave.sql` 必须在已应用0000的库依次执行；保存原有行情和人工财报登记。
 
 Worker带定时入口及UTC Cron配置；服务器默认禁止发送。需要实际部署、D1迁移、机器人秘密变量及公网链接配置后，才能启用每天群推送。本地预览不代表线上定时任务已运行。
+
+## v0.2.0 自动财报日历与版本需求
+
+- `/updates`：版本更新记录、保存新需求、跟踪待评审/计划中/已完成。
+- `/stocks/TSLA`：自动财报日期、可信状态、来源链接、检查时间、人工纠错与恢复自动。
+- `lib/earnings-provider.ts`：免费来源解析；`lib/earnings.ts`：缓存、并发保护、持久化及重算。
+- 已有数据库在0002之后依次应用 `drizzle/0003_lame_shinobi_shaw.sql` 和 `drizzle/0004_good_nextwave.sql`。
+- `node --experimental-strip-types --test tests/*.test.mjs`：31项自动化测试（Node22.16+）。
+
+默认不需要付费财报API，第三方日期标为预计；财报正文/财务指标未接入。新增信息从纽约下一自然日起用于计算。功能方案见 [自动财报与版本页](docs/earnings-and-updates-plan.md)。

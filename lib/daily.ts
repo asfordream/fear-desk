@@ -1,5 +1,7 @@
 import {getRawDb} from '@/db';
-import {ensureInitial,syncAll,recompute} from './store';
+import {ensureInitial,syncAll} from './store';
+import {refreshEarnings} from './earnings';
+import {readEarnings} from './earnings-read';
 import {VERSION,type Score} from './engine';
 import {summarize,renderCard,publicBase,nyCutoff,type ReportStock,type ReportSnapshot} from './report';
 import {postCard,validateWebhook,type BotConfig} from './feishu';
@@ -13,7 +15,7 @@ export async function generateReport(config:BotConfig={},expectedDate?:string){
  const previousDate=dates[1]?.date??null;
  const items=(await db().prepare("SELECT symbol,name,status,event_date FROM instruments WHERE active=1 AND symbol!='SPY' ORDER BY symbol").all<{symbol:string;name:string;status:string;event_date:string|null}>()).results;
  const stocks:ReportStock[]=[];
- for(const item of items){const history=(await db().prepare('SELECT date,payload FROM scores WHERE symbol=? AND date IN (?,?) ORDER BY date DESC').bind(item.symbol,tradeDate,previousDate).all<{date:string;payload:string}>()).results;stocks.push({symbol:item.symbol,name:item.name,status:item.status,eventDate:item.event_date,latest:history.find(s=>s.date===tradeDate)?JSON.parse(history.find(s=>s.date===tradeDate)!.payload) as Score:null,previous:history.find(s=>s.date===previousDate)?JSON.parse(history.find(s=>s.date===previousDate)!.payload) as Score:null});}
+ for(const item of items){const history=(await db().prepare('SELECT date,payload FROM scores WHERE symbol=? AND date IN (?,?) ORDER BY date DESC').bind(item.symbol,tradeDate,previousDate).all<{date:string;payload:string}>()).results;stocks.push({symbol:item.symbol,name:item.name,status:item.status,eventDate:item.event_date,earningsInfo:await readEarnings(item.symbol),latest:history.find(s=>s.date===tradeDate)?JSON.parse(history.find(s=>s.date===tradeDate)!.payload) as Score:null,previous:history.find(s=>s.date===previousDate)?JSON.parse(history.find(s=>s.date===previousDate)!.payload) as Score:null});}
  const watchlistHash=await digest(items.map(x=>({symbol:x.symbol,name:x.name,eventDate:x.event_date})));
  const facts={tradeDate,previousDate,version:VERSION,watchlistHash,stocks,summary:summarize(stocks,tradeDate,previousDate)};
  const base=publicBase(config.SITE_BASE_URL);const id=await digest({facts,base});
@@ -26,7 +28,7 @@ export async function reportStatus(config:BotConfig){
  const reports=(await db().prepare('SELECT id,trade_date,created_at,complete FROM reports ORDER BY created_at DESC LIMIT 20').all()).results;
  const jobs=(await db().prepare('SELECT * FROM job_runs ORDER BY started_at DESC LIMIT 8').all()).results;
  let webhookValid=false;try{webhookValid=!!config.FEISHU_WEBHOOK_URL&&!!validateWebhook(config.FEISHU_WEBHOOK_URL);}catch{/* Only expose validity, never credentials. */}
- return {reports,jobs,config:{webhookConfigured:webhookValid,signingConfigured:!!config.FEISHU_SIGNING_SECRET,sendEnabled:config.FEISHU_SEND_ENABLED==='true',publicLinks:!!publicBase(config.SITE_BASE_URL),earningsConfigured:!!config.FINNHUB_API_KEY,schedule:'工作日纽约16:30后（北京时间次日04:30/05:30；失败后再尝试）',deployment:'定时触发需部署启用，本地页面不代表线上任务已运行'}};
+ return {reports,jobs,config:{webhookConfigured:webhookValid,signingConfigured:!!config.FEISHU_SIGNING_SECRET,sendEnabled:config.FEISHU_SEND_ENABLED==='true',publicLinks:!!publicBase(config.SITE_BASE_URL),earningsConfigured:true,earningsSource:'公司公告优先 / Yahoo免费预计日历',finnhubConfigured:!!config.FINNHUB_API_KEY,schedule:'工作日纽约16:30后（北京时间次日04:30/05:30；失败后再尝试）',deployment:'定时触发需部署启用，本地页面不代表线上任务已运行'}};
 }
 export async function sendReport(id:string,config:BotConfig){
  if(config.FEISHU_SEND_ENABLED!=='true'||!config.FEISHU_WEBHOOK_URL)throw new Error('机器人尚未启用，当前仅提供预览');validateWebhook(config.FEISHU_WEBHOOK_URL);
@@ -41,19 +43,6 @@ export async function sendReport(id:string,config:BotConfig){
  let result;try{result=await postCard(saved.card,config);}catch(e){result={status:'failed' as const,message:e instanceof Error?e.message:'发送配置无效'};}
  await db().prepare('UPDATE deliveries SET status=?,updated_at=?,message=? WHERE report_id=?').bind(result.status,new Date().toISOString(),result.message,id).run();return result;
 }
-async function refreshEarnings(config:BotConfig,knownAt:string){
- if(!config.FINNHUB_API_KEY)return '自动财报源未配置，沿用人工登记';
- const items=(await db().prepare("SELECT symbol FROM instruments WHERE active=1 AND symbol!='SPY'").all<{symbol:string}>()).results;let updated=0,failed=0;
- for(const {symbol} of items){
-  // Manual registration has priority until explicitly changed/cleared by its owner.
-  const manual=await db().prepare("SELECT id FROM earnings_events WHERE symbol=? AND source='manual' ORDER BY id DESC LIMIT 1").bind(symbol).first();if(manual)continue;
-  try{const to=new Date(Date.parse(knownAt+'T00:00Z')+90*86400000).toISOString().slice(0,10);const url=new URL('https://finnhub.io/api/v1/calendar/earnings');url.search=new URLSearchParams({from:knownAt,to,symbol}).toString();const response=await fetch(url,{headers:{'X-Finnhub-Token':config.FINNHUB_API_KEY},signal:AbortSignal.timeout(6000)});if(!response.ok)throw new Error('财报源返回失败');const data=await response.json() as {earningsCalendar?:{symbol:string;date:string}[]};if(!Array.isArray(data.earningsCalendar))throw new Error('财报响应无效');const event=data.earningsCalendar.filter(x=>x.symbol===symbol&&/^\d{4}-\d{2}-\d{2}$/.test(x.date)&&x.date>=knownAt&&x.date<=to).sort((a,b)=>a.date.localeCompare(b.date))[0];if(!event)continue;
-   const previous=await db().prepare('SELECT date FROM earnings_events WHERE symbol=? ORDER BY known_at DESC,id DESC LIMIT 1').bind(symbol).first<{date:string|null}>();if(previous?.date===event.date)continue;
-   await db().batch([db().prepare('INSERT INTO earnings_events(symbol,date,known_at,source,recorded_at) VALUES (?,?,?,?,?)').bind(symbol,event.date,knownAt,'finnhub',new Date().toISOString()),db().prepare('UPDATE instruments SET event_date=?,event_known_at=? WHERE symbol=?').bind(event.date,knownAt,symbol)]);await recompute(symbol);updated++;
-  }catch{failed++;}
- }
- return `自动财报更新 ${updated} 只，失败 ${failed} 只；未知日期仍需登记`;
-}
 export async function runDaily(config:BotConfig,now=new Date()){
  const cutoff=nyCutoff(now);if(!cutoff.ready)return {status:'skipped',message:'纽约尚未到工作日16:30，未更新'};
  const token=crypto.randomUUID(),startedAt=new Date().toISOString(),lease=Date.now()+14*60_000;
@@ -66,7 +55,7 @@ export async function runDaily(config:BotConfig,now=new Date()){
   if(existing){let saved=await readReport(existing.id);const base=publicBase(config.SITE_BASE_URL);if(base&&!JSON.stringify(saved.card).includes(`${base}/reports/${saved.snapshot.id}`))saved=await generateReport(config,cutoff.date);await db().prepare('UPDATE job_runs SET report_id=? WHERE id=?').bind(saved.snapshot.id,token).run();const message=config.FEISHU_SEND_ENABLED==='true'?await autoSend(saved.snapshot.id):'仅保存预览';return finish('ready',`当日任务已完成，复用冻结日报；${message}`);}
   const results=await syncAll();if(results.some(x=>x.status!=='success'))return finish('partial','行情更新未全部成功；保留原有截面，等待下一次触发');
   const latest=await db().prepare("SELECT MAX(date) AS date FROM bars WHERE symbol='SPY'").first<{date:string}>();if(latest?.date!==cutoff.date)return finish('skipped','SPY 无当天收盘日线；休市或数据尚未发布');
-  const earnings=await refreshEarnings(config,cutoff.date);
+  const earningsResult=await refreshEarnings(config);const earnings=`财报更新：${earningsResult.filter(x=>x.status==='updated').length}只新数据 / ${earningsResult.filter(x=>['error','retained'].includes(x.status)).length}只需核对`;
   const owned=await db().prepare("SELECT name FROM workflow_locks WHERE name='daily' AND token=? AND until>?").bind(token,Date.now()).first();if(!owned)return finish('partial','任务锁已过期；未生成或发送日报');
   const saved=await generateReport(config,cutoff.date);if(!saved.snapshot.summary.complete)return finish('partial','当天行情不齐；预览已保存，自动发送已阻断');
   await db().prepare('UPDATE job_runs SET report_id=? WHERE id=?').bind(saved.snapshot.id,token).run();

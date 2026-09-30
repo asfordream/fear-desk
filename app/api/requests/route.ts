@@ -1,0 +1,6 @@
+import {getRawDb} from '@/db';
+import {access,success,failure} from '@/lib/http';
+import {requestInput,requestStatus} from '@/lib/releases';
+export async function GET(req:Request){try{await access(req);const data=(await getRawDb().prepare('SELECT * FROM feature_requests ORDER BY created_at DESC,id DESC LIMIT 100').all()).results;return success(data);}catch(e){return failure(e);}}
+export async function POST(req:Request){try{await access(req);const {title,description}=requestInput(await req.json());const id=crypto.randomUUID(),at=new Date().toISOString();await getRawDb().prepare("INSERT INTO feature_requests(id,title,description,status,created_at,updated_at) VALUES (?,?,?,'open',?,?)").bind(id,title,description,at,at).run();return success({id});}catch(e){return failure(e);}}
+export async function PATCH(req:Request){try{await access(req);const body=await req.json() as {id?:unknown;status?:unknown};if(typeof body?.id!=='string'||!/^[-a-f0-9]{36}$/.test(body.id))throw new Error('需求编号无效');const status=requestStatus(body.status);const result=await getRawDb().prepare('UPDATE feature_requests SET status=?,updated_at=? WHERE id=?').bind(status,new Date().toISOString(),body.id).run();if(!result.meta.changes)throw new Error('需求不存在');return success({id:body.id,status});}catch(e){return failure(e);}}

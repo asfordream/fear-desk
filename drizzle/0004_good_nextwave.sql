@@ -1,0 +1,1 @@
+ALTER TABLE `earnings_calendar` ADD `needs_recompute` integer DEFAULT 0 NOT NULL;
