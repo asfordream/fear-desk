@@ -1,0 +1,11 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {changeArrow,compactName,renderCard,summarize,candidateStocks,transitionLabel,reportChanges} from '../lib/report.ts';
+const score=(date,n)=>({date,score:n,total:n,base:n,groups:[50,50,50,50],version:'v1',price:100,form:'中性',assessment:'未通过 · 恐慌值低于70',metrics:{}});
+const stock=(symbol,n,previous)=>({symbol,name:'Example Inc.',status:'ready',eventDate:null,latest:score('2026-09-29',n),previous:score('2026-09-28',previous)});
+const snapshot=stocks=>({id:'a'.repeat(64),tradeDate:'2026-09-29',previousDate:'2026-09-28',generatedAt:'2026-09-30T06:00Z',version:'v1',watchlistHash:'x',stocks,summary:summarize(stocks,'2026-09-29','2026-09-28')});
+test('恐慌变化箭头区分升降、零和缺数',()=>{assert.equal(changeArrow(18),'↑18');assert.equal(changeArrow(-9),'↓9');assert.equal(changeArrow(0),'→0');assert.equal(changeArrow(-0.1),'→0');assert.equal(changeArrow(null),'—');});
+test('候选只包含65到74分，击球区75分不重复列为候选',()=>{const r=snapshot([stock('A',64,60),stock('B',65,60),stock('C',74,60),stock('D',75,60)]);assert.deepEqual(candidateStocks(r).map(x=>x.symbol),['C','B']);});
+test('进入分区提示只在同版本前一交易日跨阈值时出现',()=>{const x=stock('A',60,59),r=snapshot([x]);assert.equal(transitionLabel(x,r),'进入底部区');x.previous.date='2026-09-25';assert.equal(transitionLabel(x,r),'');assert.equal(reportChanges(r).length,0);x.previous.date=r.previousDate;x.previous.version='v0';assert.equal(transitionLabel(x,r),'');});
+test('卡片股票单行、名称价格与独立形态保留，涨跌使用飞书颜色',()=>{const r=snapshot([stock('AAPL',56,38),stock('NFLX',66,75)]);const c=renderCard(r,'https://desk.example.com'),text=JSON.stringify(c);assert.match(text,/<font color='red'>↑18/);assert.match(text,/<font color='green'>↓9/);assert.match(text,/苹果/);assert.match(text,/\$100.00/);assert.match(text,/形态：中性/);assert.match(text,/候选区/);assert.doesNotMatch(text,/collapsible_panel/);assert.doesNotMatch(text,/期权|IV|🔥/);const band=c.body.elements.find(x=>x.content?.startsWith('**🔻'));assert.equal(band.content.split('\n').filter(x=>x.startsWith('★')).length,1);});
+test('行情公司名称不能注入新的消息行，已知名称使用中文简称',()=>{assert.equal(compactName(stock('AAPL',50,50)),'苹果');const x=stock('CUSTOM',50,50);x.name='Fake\n<font>|Name';assert.doesNotMatch(compactName(x),/[\n<>|]/);});
