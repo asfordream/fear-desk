@@ -1,0 +1,2 @@
+import {syncAll} from '@/lib/store';import {ticker} from '@/lib/provider';import {access,success,failure} from '@/lib/http';
+export async function POST(req:Request){try{await access(req);const parsed=await req.json();if(!parsed||typeof parsed!=='object')throw new Error('请求格式无效');const body=parsed as Record<string,unknown>;return success(await syncAll(body.symbol?ticker(body.symbol):undefined));}catch(e){return failure(e);}}
