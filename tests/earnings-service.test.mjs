@@ -28,3 +28,17 @@ test('失败保留未来日期并设置15分钟缓存，成功空响应清除过
 test('自动抓取尚未结束时人工纠错胜出，不追加过期自动决策',async()=>{await editEarnings('TSLA',null,'auto');const entered=Promise.withResolvers(),resume=Promise.withResolvers();globalThis.fetch=async url=>{if(String(url).includes('ir.tesla.com'))return new Response('',{status:403});entered.resolve();await resume.promise;return new Response(yahoo(future(35)));};const pending=refreshSymbolEarnings('TSLA',{},true);await entered.promise;await editEarnings('TSLA',future(31),'manual');const n=eventCount();resume.resolve();assert.equal((await pending).status,'superseded');assert.equal(row().date,future(31));assert.equal(row().mode,'manual');assert.equal(eventCount(),n);assert.equal((await refreshSymbolEarnings('TSLA',{},true)).status,'manual');});
 test('自动恢复后优先采纳官方确认，第三方预计不能降级或改写',async()=>{await editEarnings('TSLA',null,'auto');globalThis.fetch=async()=>new Response(`<script type="application/ld+json">{"@type":"Event","name":"Quarterly earnings call","startDate":"${future(40)}"}</script>`);await refreshSymbolEarnings('TSLA',{},true);assert.equal(row().status,'confirmed');globalThis.fetch=network(future(41));await refreshSymbolEarnings('TSLA',{},true);assert.equal(row().date,future(40));assert.equal(row().status,'confirmed');assert.match(row().error,/未替代/);});
 test('重算中断后缓存命中仍会修复，不产生重复财报决策',async()=>{await editEarnings('TSLA',null,'auto');globalThis.fetch=network(future(45));failScores=true;await assert.rejects(refreshSymbolEarnings('TSLA',{},true),/interrupted/);assert.equal(row().needs_recompute,1);assert.equal((await readEarnings('TSLA')).calculationPending,true);const n=eventCount();assert.equal((await refreshSymbolEarnings('TSLA')).status,'cached');assert.equal(row().needs_recompute,0);assert.equal(eventCount(),n);});
+
+
+test('一个请求的初始化等待未完成时，新的行情读取不能复用该请求的Promise',async()=>{
+ const originalDb=globalThis.__earningsTestDb,entered=Promise.withResolvers(),resume=Promise.withResolvers();let hold=true;
+ globalThis.__earningsTestDb={...originalDb,prepare(text){const statement=originalDb.prepare(text);return {...statement,bind(...args){const bound=statement.bind(...args);if(text==='SELECT * FROM instruments WHERE symbol=?')return {...bound,async first(){if(hold){hold=false;entered.resolve();await resume.promise;}return bound.first();}};return bound;}};}};
+ const first=ensureInitial();await entered.promise;let finished=false;const second=ensureInitial().then(()=>{finished=true;});
+ try{await Promise.race([second,new Promise(resolve=>setTimeout(resolve,200))]);assert.equal(finished,true,'后续请求被先前请求的初始化Promise阻塞');}
+ finally{resume.resolve();await Promise.all([first,second]);globalThis.__earningsTestDb=originalDb;}
+});
+
+
+const {clientApi}=await import('../lib/client-api.ts');
+test('行情读取超时明确报错，不会无限等待',async()=>{await assert.rejects(clientApi('/api/desk','GET',undefined,async(url,options)=>new Promise((resolve,reject)=>{const keep=setTimeout(resolve,1000);options.signal.addEventListener('abort',()=>{clearTimeout(keep);reject(options.signal.reason);},{once:true});}),10),/请求超时/);});
+test('客户端校验登录、异常响应与正常数据',async()=>{assert.deepEqual(await clientApi('/api/desk','GET',undefined,async()=>Response.json({data:[{symbol:'TSLA'}]})),[{symbol:'TSLA'}]);await assert.rejects(clientApi('/api/desk','GET',undefined,async()=>new Response('<html>Login</html>',{status:401})),/登录/);await assert.rejects(clientApi('/api/desk','GET',undefined,async()=>new Response('<html>Error</html>')),/服务响应异常/);});
