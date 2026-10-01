@@ -28,7 +28,7 @@ export async function reportStatus(config:BotConfig){
  const reports=(await db().prepare('SELECT id,trade_date,created_at,complete FROM reports ORDER BY created_at DESC LIMIT 20').all()).results;
  const jobs=(await db().prepare('SELECT * FROM job_runs ORDER BY started_at DESC LIMIT 8').all()).results;
  let webhookValid=false;try{webhookValid=!!config.FEISHU_WEBHOOK_URL&&!!validateWebhook(config.FEISHU_WEBHOOK_URL);}catch{/* Only expose validity, never credentials. */}
- return {reports,jobs,config:{webhookConfigured:webhookValid,signingConfigured:!!config.FEISHU_SIGNING_SECRET,sendEnabled:config.FEISHU_SEND_ENABLED==='true',publicLinks:!!publicBase(config.SITE_BASE_URL),earningsConfigured:true,earningsSource:'公司公告优先 / Yahoo免费预计日历',finnhubConfigured:!!config.FINNHUB_API_KEY,schedule:'北京时间14:00；对应前一美股交易日收盘，通常周二至周六，休市跳过；失败14:10/14:20再尝试',deployment:'定时触发需部署启用，本地页面不代表线上任务已运行'}};
+ return {reports,jobs,config:{webhookConfigured:webhookValid,signingConfigured:!!config.FEISHU_SIGNING_SECRET,sendEnabled:config.FEISHU_SEND_ENABLED==='true',publicLinks:!!publicBase(config.SITE_BASE_URL),earningsConfigured:true,earningsSource:'公司公告优先 / Yahoo免费预计日历',finnhubConfigured:!!config.FINNHUB_API_KEY,schedule:'北京时间14:00；对应前一美股交易日收盘，通常周二至周六，休市跳过；失败15:00/16:00再尝试',deployment:'关联Sites云端任务触发；实际结果以最近任务和发送状态为准'}};
 }
 export async function sendReport(id:string,config:BotConfig){
  if(config.FEISHU_SEND_ENABLED!=='true'||!config.FEISHU_WEBHOOK_URL)throw new Error('机器人尚未启用，当前仅提供预览');validateWebhook(config.FEISHU_WEBHOOK_URL);
