@@ -10,7 +10,7 @@ const db=()=>getRawDb();
 async function digest(value:unknown){return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(value))))).map(x=>x.toString(16).padStart(2,'0')).join('');}
 export async function generateReport(config:BotConfig={},expectedDate?:string){
  await ensureInitial();
- const dates=(await db().prepare('SELECT date FROM bars WHERE symbol=? ORDER BY date DESC LIMIT 2').bind('SPY').all<{date:string}>()).results;
+ const dates=(await db().prepare('SELECT date FROM bars WHERE symbol=? AND (? IS NULL OR date<=?) ORDER BY date DESC LIMIT 2').bind('SPY',expectedDate??null,expectedDate??null).all<{date:string}>()).results;
  const tradeDate=dates[0]?.date;if(!tradeDate)throw new Error('SPY 尚未入库');if(expectedDate&&tradeDate!==expectedDate)throw new Error(`SPY 尚无 ${expectedDate} 收盘数据；休市或行情延迟，未生成当日日报`);
  const previousDate=dates[1]?.date??null;
  const items=(await db().prepare("SELECT symbol,name,status,event_date FROM instruments WHERE active=1 AND symbol!='SPY' ORDER BY symbol").all<{symbol:string;name:string;status:string;event_date:string|null}>()).results;
@@ -47,6 +47,7 @@ export async function runDaily(config:BotConfig,now=new Date()){
  const cutoff=beijingReportCutoff(now);if(!cutoff.ready)return {status:'skipped',message:'未到北京时间14:00，或前一天为美股周末；未更新'};
  const token=crypto.randomUUID(),startedAt=new Date().toISOString(),lease=Date.now()+14*60_000;
  const lock=await db().prepare("INSERT INTO workflow_locks(name,token,until) VALUES ('daily',?,?) ON CONFLICT(name) DO UPDATE SET token=excluded.token,until=excluded.until WHERE workflow_locks.until<?").bind(token,lease,Date.now()).run();if(!lock.meta.changes)return {status:'busy',message:'每日任务正在运行'};
+ await markInterrupted(startedAt);
  await db().prepare("INSERT INTO job_runs(id,started_at,trade_date,status) VALUES (?,?,?,'running')").bind(token,startedAt,cutoff.date).run();
  const finish=async(status:string,message:string)=>{await db().prepare('UPDATE job_runs SET status=?,message=?,finished_at=? WHERE id=?').bind(status,message,new Date().toISOString(),token).run();return {status,message};};
  try{
@@ -62,5 +63,49 @@ export async function runDaily(config:BotConfig,now=new Date()){
   let delivery='仅保存预览';if(config.FEISHU_SEND_ENABLED==='true')delivery=await autoSend(saved.snapshot.id);
   return finish('ready',`${earnings}；${delivery}`);
  }catch{return finish('error','每日任务未完成；可在网页查看行情状态并重试，机器人配置请查服务器设置');}
+ finally{await db().prepare("DELETE FROM workflow_locks WHERE name='daily' AND token=?").bind(token).run();}
+}
+
+async function markInterrupted(stamp:string){
+ // Call only after claiming the exclusive global lease. No older invocation
+ // can still own it; keep its audit row instead of showing running forever.
+ await db().prepare("UPDATE job_runs SET status='interrupted',finished_at=?,message='前次请求已中断，任务锁已被后续运行接管' WHERE status='running'").bind(stamp).run();
+}
+export async function recoverLastIncomplete(config:BotConfig,now=new Date()){
+ const target=beijingReportCutoff(now).date;
+ const pending=await db().prepare("SELECT j.trade_date FROM job_runs j WHERE j.trade_date<? AND j.status IN ('running','interrupted','error','partial') AND NOT EXISTS (SELECT 1 FROM reports r JOIN deliveries d ON d.report_id=r.id WHERE r.trade_date=j.trade_date AND d.status IN ('sent','sending','unknown')) ORDER BY j.trade_date DESC LIMIT 1").bind(target).first<{trade_date:string}>();
+ if(!pending)return {status:'skipped',message:'没有可安全补发的历史任务；当天任务仍按14:00执行'};
+ const token=crypto.randomUUID(),stamp=new Date().toISOString();
+ const claim=await db().prepare("INSERT INTO workflow_locks(name,token,until) VALUES ('daily',?,?) ON CONFLICT(name) DO UPDATE SET token=excluded.token,until=excluded.until WHERE workflow_locks.until<?").bind(token,Date.now()+14*60_000,Date.now()).run();
+ if(!claim.meta.changes)return {status:'busy',message:'每日任务正在运行，未启动补发'};
+ const finish=async(status:string,message:string)=>{await db().prepare('UPDATE job_runs SET status=?,message=?,finished_at=? WHERE id=?').bind(status,message,new Date().toISOString(),token).run();return {status,message};};
+ try{
+  await markInterrupted(stamp);
+  await db().prepare("INSERT INTO job_runs(id,started_at,trade_date,status) VALUES (?,?,?,'running')").bind(token,stamp,pending.trade_date).run();
+  // Use the already stored scores for this exact date. Do not rewrite historical
+  // factors using today's earnings knowledge or substitute a newer SPY date.
+  const saved=await generateReport(config,pending.trade_date);
+  await db().prepare('UPDATE job_runs SET report_id=? WHERE id=?').bind(saved.snapshot.id,token).run();
+  if(!saved.snapshot.summary.complete)return finish('partial','补发日期的行情或评分不齐，未发送');
+  const prior=await db().prepare("SELECT d.status FROM deliveries d JOIN reports r ON r.id=d.report_id WHERE r.trade_date=? AND d.status IN ('sent','sending','unknown') LIMIT 1").bind(pending.trade_date).first();
+  if(prior)return finish('ready','该日期已发送或结果待核对，未重复补发');
+  const result=await sendReport(saved.snapshot.id,config);
+  return finish(result.status==='sent'?'ready':'partial',`补发 ${pending.trade_date} 收盘日报；${result.message}`);
+ }catch{return finish('error','历史日报补发未完成；未改写原有行情与评分，请核对截面及发送记录');}
+ finally{await db().prepare("DELETE FROM workflow_locks WHERE name='daily' AND token=?").bind(token).run();}
+}
+
+export async function refreshDailyInputs(config:BotConfig){
+ const stamp=new Date().toISOString(),token=crypto.randomUUID(),date=beijingReportCutoff(new Date()).date;
+ const claim=await db().prepare("INSERT INTO workflow_locks(name,token,until) VALUES ('daily',?,?) ON CONFLICT(name) DO UPDATE SET token=excluded.token,until=excluded.until WHERE workflow_locks.until<?").bind(token,Date.now()+14*60_000,Date.now()).run();
+ if(!claim.meta.changes)return {status:'busy',message:'每日任务正在运行，未并行刷新'};
+ const finish=async(status:string,message:string)=>{await db().prepare('UPDATE job_runs SET status=?,message=?,finished_at=? WHERE id=?').bind(status,message,new Date().toISOString(),token).run();return {status,message};};
+ try{
+  await markInterrupted(stamp);
+  await db().prepare("INSERT INTO job_runs(id,started_at,trade_date,status) VALUES (?,?,?,'running')").bind(token,stamp,date).run();
+  const results=await syncAll();if(results.some(x=>x.status!=='success'))return finish('partial','增量行情更新未全部成功；未发送');
+  const earnings=await refreshEarnings(config);
+  return finish('updated',`增量行情 ${results.length} 个标的完成；财报检查 ${earnings.length} 个；仅更新，未发送`);
+ }catch{return finish('error','行情与财报刷新未完成；未发送');}
  finally{await db().prepare("DELETE FROM workflow_locks WHERE name='daily' AND token=?").bind(token).run();}
 }

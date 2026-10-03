@@ -31,7 +31,7 @@ export async function refreshEarnings(config:{FINNHUB_API_KEY?:string}={},symbol
  await ensureInitial();const symbols=symbol?[symbol]:(await db().prepare("SELECT symbol FROM instruments WHERE active=1 AND symbol!='SPY' ORDER BY symbol").all<{symbol:string}>()).results.map(x=>x.symbol);
  const results:Awaited<ReturnType<typeof refreshSymbolEarnings>>[]=[];
  // Bound parallel network requests; each provider is fetched at most once per symbol per cache period.
- for(let i=0;i<symbols.length;i+=2){const rows=await Promise.all(symbols.slice(i,i+2).map(async s=>{try{return await refreshSymbolEarnings(s,config,force);}catch{return {symbol:s,status:'error',message:'财报更新未完成，请重试'};}}));results.push(...rows);}return results;
+ for(let i=0;i<symbols.length;i+=4){const rows=await Promise.all(symbols.slice(i,i+4).map(async s=>{try{return await refreshSymbolEarnings(s,config,force);}catch{return {symbol:s,status:'error',message:'财报更新未完成，请重试'};}}));results.push(...rows);}return results;
 }
 export async function editEarnings(symbol:string,date:string|null,mode:'manual'|'auto'){
  const item=await instrument(symbol);if(!item||symbol==='SPY')throw new Error('未知标的');if(date!==null&&!validDate(date))throw new Error('财报日期格式无效');
