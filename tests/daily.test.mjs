@@ -10,7 +10,7 @@ const root=fileURLToPath(new URL('../',import.meta.url));
 const sql=new DatabaseSync(':memory:');
 for(const f of readdirSync(path.join(root,'drizzle')).filter(x=>x.endsWith('.sql')).sort())sql.exec(readFileSync(path.join(root,'drizzle',f),'utf8'));
 const prepare=(text,values=[])=>({bind(...args){return prepare(text,args);},async first(){return sql.prepare(text).get(...values)??null;},async all(){return {results:sql.prepare(text).all(...values)};},async run(){const r=sql.prepare(text).run(...values);return {meta:{changes:r.changes}};}});
-globalThis.__dailyDb={prepare};let syncs=0,sends=0;
+globalThis.__dailyDb={prepare,batch:async statements=>Promise.all(statements.map(s=>s.run()))};let syncs=0,sends=0;
 globalThis.__dailySync=async()=>{syncs++;return [{status:'success'}];};
 const hook=registerHooks({resolve(specifier,context,next){
  if(specifier==='@/db')return {url:'data:text/javascript,export function getRawDb(){return globalThis.__dailyDb}',shortCircuit:true};
@@ -18,7 +18,7 @@ const hook=registerHooks({resolve(specifier,context,next){
  if(context.parentURL?.endsWith('/lib/daily.ts')&&specifier==='./earnings')return {url:'data:text/javascript,export async function refreshEarnings(){return []}',shortCircuit:true};
  if(specifier.startsWith('.')&&context.parentURL?.startsWith('file:')){const url=new URL(specifier,context.parentURL);if(!path.extname(fileURLToPath(url))&&existsSync(fileURLToPath(url)+'.ts'))return {url:pathToFileURL(fileURLToPath(url)+'.ts').href,shortCircuit:true};}return next(specifier,context);
 }});
-const {runDaily,generateReport,readReport}=await import('../lib/daily.ts');
+const {runDaily,generateReport,readReport,recoverLastIncomplete,refreshDailyInputs}=await import('../lib/daily.ts');
 const originalFetch=globalThis.fetch;
 globalThis.fetch=async(url,options)=>{assert.equal(new URL(url).hostname,'open.feishu.cn');assert.equal(options.redirect,'manual');sends++;return Response.json({code:0});};
 const config={FEISHU_SEND_ENABLED:'true',FEISHU_WEBHOOK_URL:'https://open.feishu.cn/open-apis/bot/v2/hook/test-only',SITE_BASE_URL:'https://desk.example.com'};
@@ -44,3 +44,38 @@ test('卡片格式升级生成新快照，保留已发送旧卡片且重复生�
  assert.doesNotMatch(JSON.stringify(next.card),/collapsible_panel/);assert.deepEqual((await readReport(legacyId)).card,legacyCard);
  assert.equal((await generateReport(config)).snapshot.id,id);
 });
+
+// Exercise the real store with deterministic providers; keep the daily runner's
+// existing mocked store separate so these tests measure persistence/concurrency.
+const budgetHook=registerHooks({resolve(specifier,context,next){
+ if(context.parentURL?.endsWith('/lib/store.ts')){
+  const modules={'./engine':'export const VERSION="v1";export function calculate(rows){return rows.map(b=>({date:b.date,score:61,total:61,base:61,groups:[61,61,61,61],price:b.rawClose,form:"中性",assessment:"未进入评估",version:"v1"}))}',
+   './provider':'export function fetchMarket(symbol,start){return globalThis.__budgetFetch(symbol,start)};export function parseMarket(){throw new Error("unexpected initializer")}',
+   './initial-market.json':'export default {}'};
+  if(modules[specifier])return {url:'data:text/javascript,'+encodeURIComponent(modules[specifier]),shortCircuit:true};
+ }return next(specifier,context);
+}});
+const realStore=await import('../lib/store.ts');
+after(()=>{budgetHook.deregister();delete globalThis.__budgetFetch;});
+const seedMarket=(symbols=['AAA'])=>{seed('2026-09-29');sql.exec('DELETE FROM bars; DELETE FROM scores; DELETE FROM instruments;');const old=[];
+ for(let i=1;i<=8;i++)old.push({date:'2026-09-'+String(i).padStart(2,'0'),open:100,high:101,low:99,close:100,volume:100,rawClose:100,factor:1});
+ for(const symbol of ['SPY',...symbols]){sql.prepare('INSERT INTO instruments(symbol,name,active,status,origin) VALUES (?,?,?, ?,?)').run(symbol,symbol,symbol==='SPY'?0:1,'ready',old[0].date);
+  for(const b of old){sql.prepare('INSERT INTO bars(symbol,date,open,high,low,close,volume,raw_close,factor) VALUES (?,?,?,?,?,?,?,?,?)').run(symbol,b.date,b.open,b.high,b.low,b.close,b.volume,b.rawClose,b.factor);if(symbol!=='SPY')sql.prepare('INSERT INTO scores(symbol,date,score,payload,version) VALUES (?,?,?,?,?)').run(symbol,b.date,60,JSON.stringify({date:b.date,score:60,version:'v1',marker:'original'}),'v1');}
+ }return old;};
+test('普通增量更新仅写重叠与新评分，历史修订仍完整重算',async()=>{const old=seedMarket();let revise=false;globalThis.__budgetFetch=async(symbol,start)=>({symbol,name:symbol,fetchedAt:new Date().toISOString(),bars:[...old.filter(b=>!start||b.date>=start).map(b=>revise?{...b,close:101,rawClose:101}:b),{...old[0],date:'2026-09-09'}]});
+ assert.equal((await realStore.syncOne('AAA')).status,'success');assert.equal(JSON.parse(sql.prepare('SELECT payload FROM scores WHERE symbol=? AND date=?').get('AAA',old[0].date).payload).marker,'original');assert.equal(sql.prepare('SELECT score FROM scores WHERE symbol=? AND date=?').get('AAA','2026-09-09').score,61);
+ revise=true;assert.equal((await realStore.syncOne('AAA')).status,'success');assert.equal(sql.prepare('SELECT score FROM scores WHERE symbol=? AND date=?').get('AAA',old[0].date).score,61);});
+test('SPY先完成，股票更新并发数限制为4且结果不丢失',async()=>{const symbols=['AAA','BBB','CCC','DDD','EEE','FFF'],old=seedMarket(symbols);let active=0,peak=0,spyDone=false;globalThis.__budgetFetch=async(symbol)=>{if(symbol!=='SPY')assert.equal(spyDone,true);active++;peak=Math.max(peak,active);await new Promise(r=>setTimeout(r,5));active--;if(symbol==='SPY')spyDone=true;return {symbol,name:symbol,fetchedAt:new Date().toISOString(),bars:old};};const results=await realStore.syncAll();assert.equal(results.length,7);assert.equal(results[0].symbol,'SPY');assert.ok(results.every(x=>x.status==='success'));assert.ok(peak>1);assert.ok(peak<=4);});
+test('接管已过期任务后旧运行记录标为中断，而非永久运行中',async()=>{seed('2026-09-29');sql.prepare("INSERT INTO job_runs(id,started_at,trade_date,status) VALUES ('dead','2026-09-29T06:00Z','2026-09-28','running')").run();assert.equal((await runDaily(config,new Date('2026-09-30T06:00Z'))).status,'ready');assert.equal(sql.prepare("SELECT status FROM job_runs WHERE id='dead'").get().status,'interrupted');});
+
+test('补发已中断的历史日报使用精确截面，不提前发送今天且不重复',async()=>{seed('2026-09-29');
+ sql.prepare("INSERT INTO job_runs(id,started_at,trade_date,status) VALUES ('old','2026-09-30T06:00Z','2026-09-29','running')").run();
+ sql.prepare('INSERT INTO bars(symbol,date,open,high,low,close,volume,raw_close,factor) VALUES (?,?,?,?,?,?,?,?,?)').run('SPY','2026-09-30',100,100,100,100,100,100,1);
+ const result=await recoverLastIncomplete(config,new Date('2026-10-01T05:00Z'));assert.equal(result.status,'ready');assert.match(result.message,/2026-09-29/);assert.equal(sends,1);assert.equal(syncs,0);const saved=JSON.parse(sql.prepare('SELECT payload FROM reports').get().payload);assert.equal(saved.tradeDate,'2026-09-29');assert.equal(saved.previousDate,'2026-09-28');
+ assert.equal((await recoverLastIncomplete(config,new Date('2026-10-01T05:01Z'))).status,'skipped');assert.equal(sends,1);});
+test('历史缺数据和不确定发送结果不盲目补发',async()=>{seed('2026-09-29');sql.prepare("INSERT INTO job_runs(id,started_at,trade_date,status) VALUES ('old','2026-09-30T06:00Z','2026-09-29','running')").run();sql.prepare("DELETE FROM scores WHERE date='2026-09-29'").run();assert.equal((await recoverLastIncomplete(config,new Date('2026-10-01T05:00Z'))).status,'partial');assert.equal(sends,0);});
+
+test('云端刷新完整检查行情和财报，但不提前发送或伪造完成日报',async()=>{seed('2026-09-29');const r=await refreshDailyInputs(config);assert.equal(r.status,'updated');assert.equal(syncs,1);assert.equal(sends,0);assert.equal(sql.prepare('SELECT COUNT(*) AS n FROM reports').get().n,0);assert.equal(sql.prepare('SELECT status FROM job_runs').get().status,'updated');assert.equal(sql.prepare('SELECT COUNT(*) AS n FROM workflow_locks').get().n,0);});
+test('发送结果不确定的历史任务不重新提交',async()=>{seed('2026-09-29');sql.prepare("INSERT INTO job_runs(id,started_at,trade_date,status) VALUES ('old','2026-09-30T06:00Z','2026-09-29','error')").run();const saved=await generateReport(config,'2026-09-29');sql.prepare("INSERT INTO deliveries(report_id,status,attempts,updated_at,message) VALUES (?,'unknown',1,?,'响应不明')").run(saved.snapshot.id,new Date().toISOString());assert.equal((await recoverLastIncomplete(config,new Date('2026-10-01T05:00Z'))).status,'skipped');assert.equal(sends,0);});
+
+test('SPY历史行情发生修订时，所有股票的历史评分也完整重算',async()=>{const old=seedMarket();globalThis.__budgetFetch=async symbol=>({symbol,name:symbol,fetchedAt:new Date().toISOString(),bars:old.map(b=>symbol==='SPY'?{...b,close:101,rawClose:101}:b)});const r=await realStore.syncAll();assert.equal(r[0].revised,true);assert.equal(sql.prepare('SELECT score FROM scores WHERE symbol=? AND date=?').get('AAA',old[0].date).score,61);});
