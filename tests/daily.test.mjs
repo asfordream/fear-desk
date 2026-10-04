@@ -28,6 +28,19 @@ const seed=(date)=>{sql.exec("DELETE FROM reports; DELETE FROM deliveries; DELET
  for(const day of ['2026-09-28',date])sql.prepare('INSERT INTO scores(symbol,date,score,payload,version) VALUES (?,?,?,?,?)').run('AAA',day,60,JSON.stringify({date:day,score:60,total:60,base:60,groups:[60,60,60,60],price:100,form:'中性',assessment:'未进入评估',version:'v1'}),'v1');
 };
 after(()=>{globalThis.fetch=originalFetch;hook.deregister();delete globalThis.__dailyDb;delete globalThis.__dailySync;sql.close();});
+// Exercise the real store with deterministic providers; keep the daily runner's
+// existing mocked store separate so these tests measure persistence/concurrency.
+const budgetHook=registerHooks({resolve(specifier,context,next){
+ if(context.parentURL?.endsWith('/lib/store.ts')){
+  const modules={'./engine':'export const VERSION="v1";export function calculate(rows){return rows.map(b=>({date:b.date,score:61,total:61,base:61,groups:[61,61,61,61],price:b.rawClose,form:"中性",assessment:"未进入评估",version:"v1"}))}',
+   './provider':'export function fetchMarket(symbol,start){return globalThis.__budgetFetch(symbol,start)};export function parseMarket(){throw new Error("unexpected initializer")}',
+   './initial-market.json':'export default {}'};
+  if(modules[specifier])return {url:'data:text/javascript,'+encodeURIComponent(modules[specifier]),shortCircuit:true};
+ }return next(specifier,context);
+}});
+const realStore=await import('../lib/store.ts');
+after(()=>{budgetHook.deregister();delete globalThis.__budgetFetch;});
+
 test('未到14点及北京时间周一不访问行情和机器人',async()=>{seed('2026-09-29');assert.equal((await runDaily(config,new Date('2026-09-30T05:59Z'))).status,'skipped');assert.equal((await runDaily(config,new Date('2026-10-05T06:00Z'))).status,'skipped');assert.equal(syncs,0);assert.equal(sends,0);});
 test('SPY未达到目标日期时跳过，不把旧数据当作新交易日',async()=>{seed('2026-09-29');const r=await runDaily(config,new Date('2026-10-01T06:00Z'));assert.equal(r.status,'skipped');assert.equal(sends,0);assert.equal(sql.prepare('SELECT COUNT(*) AS n FROM reports').get().n,0);});
 test('14点发送冻结日报，14点10分重试复用且不重复发',async()=>{seed('2026-09-29');assert.equal((await runDaily(config,new Date('2026-09-30T06:00Z'))).status,'ready');assert.equal(sends,1);assert.equal(sql.prepare('SELECT status FROM deliveries').get().status,'sent');assert.equal((await runDaily(config,new Date('2026-09-30T06:10Z'))).status,'ready');assert.equal(sends,1);assert.equal(syncs,1);});
@@ -45,18 +58,6 @@ test('卡片格式升级生成新快照，保留已发送旧卡片且重复生�
  assert.equal((await generateReport(config)).snapshot.id,id);
 });
 
-// Exercise the real store with deterministic providers; keep the daily runner's
-// existing mocked store separate so these tests measure persistence/concurrency.
-const budgetHook=registerHooks({resolve(specifier,context,next){
- if(context.parentURL?.endsWith('/lib/store.ts')){
-  const modules={'./engine':'export const VERSION="v1";export function calculate(rows){return rows.map(b=>({date:b.date,score:61,total:61,base:61,groups:[61,61,61,61],price:b.rawClose,form:"中性",assessment:"未进入评估",version:"v1"}))}',
-   './provider':'export function fetchMarket(symbol,start){return globalThis.__budgetFetch(symbol,start)};export function parseMarket(){throw new Error("unexpected initializer")}',
-   './initial-market.json':'export default {}'};
-  if(modules[specifier])return {url:'data:text/javascript,'+encodeURIComponent(modules[specifier]),shortCircuit:true};
- }return next(specifier,context);
-}});
-const realStore=await import('../lib/store.ts');
-after(()=>{budgetHook.deregister();delete globalThis.__budgetFetch;});
 const seedMarket=(symbols=['AAA'])=>{seed('2026-09-29');sql.exec('DELETE FROM bars; DELETE FROM scores; DELETE FROM instruments;');const old=[];
  for(let i=1;i<=8;i++)old.push({date:'2026-09-'+String(i).padStart(2,'0'),open:100,high:101,low:99,close:100,volume:100,rawClose:100,factor:1});
  for(const symbol of ['SPY',...symbols]){sql.prepare('INSERT INTO instruments(symbol,name,active,status,origin) VALUES (?,?,?, ?,?)').run(symbol,symbol,symbol==='SPY'?0:1,'ready',old[0].date);

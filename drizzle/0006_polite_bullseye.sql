@@ -1,0 +1,1 @@
+ALTER TABLE `job_runs` ADD `slice_until` integer DEFAULT 0 NOT NULL;

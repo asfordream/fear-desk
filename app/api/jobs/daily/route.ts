@@ -1,26 +1,29 @@
 import {env} from 'cloudflare:workers';
-import * as daily from '@/lib/daily';
+import {DailyRepository} from '@/lib/daily-repository';
+import {admitScheduled,drainJob,resumeExisting,originalScheduledDelivery} from '@/lib/daily-pipeline';
 
-// This shared writer is for this owner-private Site only. Sites dispatch validates
-// OAI-Sites-Authorization before forwarding a service request; it supplies no
-// visitor identity. Keep browser APIs identity-protected and this opt-in disabled
-// if the Site audience changes. Never expose the dispatch token to the app/client.
 function guard(req:Request){
- const config=env as typeof env & {DAILY_SERVICE_ENABLED?:string};
+ const config=env as typeof env&{DAILY_SERVICE_ENABLED?:string};
  if(config.DAILY_SERVICE_ENABLED!=='true')return Response.json({error:'云端任务入口未启用'},{status:403});
- const origin=req.headers.get('origin');
- if(origin&&origin!==new URL(req.url).origin)return Response.json({error:'拒绝跨站写入'},{status:403});
+ const origin=req.headers.get('origin');if(origin&&origin!==new URL(req.url).origin)return Response.json({error:'拒绝跨站写入'},{status:403});
  return null;
 }
-const reply=(data:unknown)=>Response.json({data},{headers:{'Cache-Control':'no-store'}});
-export async function GET(req:Request){
- const denied=guard(req);if(denied)return denied;
- try{const status=await daily.reportStatus(env);const job=status.jobs[0]??null;const delivery=job?.report_id?(await daily.readReport(String(job.report_id))).delivery:null;return reply({job,delivery});}
- catch{return Response.json({error:'云端任务状态暂不可读'},{status:503});}
-}
+const reply=(data:unknown,status=200)=>Response.json({data},{status,headers:{'Cache-Control':'no-store'}});
+export async function GET(req:Request){const denied=guard(req);if(denied)return denied;try{return reply(await new DailyRepository().status());}catch{return Response.json({error:'云端任务状态暂不可读'},{status:503});}}
 export async function POST(req:Request){
  const denied=guard(req);if(denied)return denied;
- // Fixed daily, refresh and recovery actions only. Dates, pool and bot remain server-owned.
- try{const text=await req.text();const action=text?JSON.parse(text)?.action:null;return reply(action==='recover'?await daily.recoverLastIncomplete(env):action==='refresh'?await daily.refreshDailyInputs(env):await daily.runDaily(env));}
- catch{return Response.json({error:'云端每日任务未完成；请读取任务状态后决定重试'},{status:503});}
+ try{
+  const body=await req.json() as {action?:unknown;requestId?:unknown};
+  if(!body||typeof body.action!=='string'||!['daily','resume_existing'].includes(body.action)||Object.keys(body).some(key=>!['action','requestId'].includes(key)))return Response.json({error:'请选择 daily 或 resume_existing'},{status:400});
+  const repo=new DailyRepository();
+  if(body.action==='resume_existing'){
+   if(body.requestId!==undefined)return Response.json({error:'恢复入口不接受新请求身份'},{status:400});
+   return reply(await resumeExisting(repo,env));
+  }
+  const accepted=await admitScheduled(env,repo,new Date(),body.requestId);
+  if('status' in accepted)return reply(accepted);
+  const result=await drainJob(accepted.job.id,repo,env);
+  const delivery=await originalScheduledDelivery(accepted.requestId,env,repo);
+  return reply({requestId:accepted.requestId,advanced:result.advanced,job:(await repo.status()).jobs.find(j=>j.id===accepted.job.id),delivery},202);
+ }catch{return Response.json({error:'本次执行未完成；持久任务与检查点保留，请读取状态'},{status:503,headers:{'Cache-Control':'no-store'}});}
 }

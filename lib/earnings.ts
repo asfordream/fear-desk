@@ -1,10 +1,11 @@
+import {fencedMarketDb,withMarketWrite} from './daily-repository';
 import {getRawDb} from '@/db';
 import {recompute,instrument,ensureInitial} from './store';
 import {fetchEarnings,nyDate,visibleDate,validDate,type EarningsCandidate} from './earnings-provider';
 import {calendar,type CalendarRow} from './earnings-read';
 export {readEarnings} from './earnings-read';
-const db=()=>getRawDb();
-async function writeAuto(symbol:string,prior:CalendarRow,candidate:EarningsCandidate|null,error:string|null,token:string,now:Date){
+const db=()=>fencedMarketDb(getRawDb());
+async function writeAutoOwned(symbol:string,prior:CalendarRow,candidate:EarningsCandidate|null,error:string|null,token:string,now:Date){
  const day=nyDate(now),stamp=now.toISOString();
  // A failing provider cannot erase a saved future date. A successful empty response can.
  const keep=!candidate&&!!error&&!!prior.date&&(prior.end_date??prior.date)>=day;
@@ -19,13 +20,14 @@ async function writeAuto(symbol:string,prior:CalendarRow,candidate:EarningsCandi
  if(changed){await recompute(symbol);await db().prepare('UPDATE earnings_calendar SET needs_recompute=0 WHERE symbol=? AND write_token=? AND revision=?').bind(symbol,token,prior.revision+1).run();}
  return {symbol,status:candidate?'updated':keep?'retained':error?'error':'unavailable',message:candidate?'财报日期已自动入库':keep?'获取失败，保留已有日期':error?'来源暂不可用':'尚无下一次财报日期'};
 }
+async function writeAuto(...args:Parameters<typeof writeAutoOwned>){return withMarketWrite(()=>writeAutoOwned(...args));}
 export async function refreshSymbolEarnings(symbol:string,config:{FINNHUB_API_KEY?:string}={},force=false){
  if(symbol==='SPY')return {symbol,status:'skipped',message:'SPY不适用公司财报'};const item=await instrument(symbol);if(!item||!item.active)throw new Error('标的不在观察池');
- await db().prepare('INSERT INTO earnings_calendar(symbol) VALUES (?) ON CONFLICT(symbol) DO NOTHING').bind(symbol).run();const now=new Date(),prior=(await calendar(symbol))!;if(prior.needs_recompute){await recompute(symbol);await db().prepare('UPDATE earnings_calendar SET needs_recompute=0 WHERE symbol=? AND revision=?').bind(symbol,prior.revision).run();}
+ await withMarketWrite(()=>db().prepare('INSERT INTO earnings_calendar(symbol) VALUES (?) ON CONFLICT(symbol) DO NOTHING').bind(symbol).run());const now=new Date(),prior=(await calendar(symbol))!;if(prior.needs_recompute){await recompute(symbol);await withMarketWrite(()=>db().prepare('UPDATE earnings_calendar SET needs_recompute=0 WHERE symbol=? AND revision=?').bind(symbol,prior.revision).run());}
  if(prior.mode==='manual')return {symbol,status:'manual',message:'人工纠错优先，可恢复自动获取'};
  if(!force&&prior.next_check>now.getTime())return {symbol,status:'cached',message:'使用已入库财报日历'};
- const token=crypto.randomUUID(),name='earnings:'+symbol;const lock=await db().prepare('INSERT INTO workflow_locks(name,token,until) VALUES (?,?,?) ON CONFLICT(name) DO UPDATE SET token=excluded.token,until=excluded.until WHERE workflow_locks.until<?').bind(name,token,Date.now()+90_000,Date.now()).run();if(!lock.meta.changes)return {symbol,status:'busy',message:'财报日历正在更新'};
- try{const result=await fetchEarnings(symbol,nyDate(now),config);return await writeAuto(symbol,prior,result.candidate,result.error,token,now);}finally{await db().prepare('DELETE FROM workflow_locks WHERE name=? AND token=?').bind(name,token).run();}
+ const token=crypto.randomUUID(),name='earnings:'+symbol;const lock=await withMarketWrite(()=>db().prepare('INSERT INTO workflow_locks(name,token,until) VALUES (?,?,?) ON CONFLICT(name) DO UPDATE SET token=excluded.token,until=excluded.until WHERE workflow_locks.until<?').bind(name,token,Date.now()+90_000,Date.now()).run());if(!lock.meta.changes)return {symbol,status:'busy',message:'财报日历正在更新'};
+ try{const result=await fetchEarnings(symbol,nyDate(now),config);return await writeAuto(symbol,prior,result.candidate,result.error,token,now);}finally{await withMarketWrite(()=>db().prepare('DELETE FROM workflow_locks WHERE name=? AND token=?').bind(name,token).run());}
 }
 export async function refreshEarnings(config:{FINNHUB_API_KEY?:string}={},symbol?:string,force=false){
  await ensureInitial();const symbols=symbol?[symbol]:(await db().prepare("SELECT symbol FROM instruments WHERE active=1 AND symbol!='SPY' ORDER BY symbol").all<{symbol:string}>()).results.map(x=>x.symbol);
@@ -33,7 +35,8 @@ export async function refreshEarnings(config:{FINNHUB_API_KEY?:string}={},symbol
  // Bound parallel network requests; each provider is fetched at most once per symbol per cache period.
  for(let i=0;i<symbols.length;i+=4){const rows=await Promise.all(symbols.slice(i,i+4).map(async s=>{try{return await refreshSymbolEarnings(s,config,force);}catch{return {symbol:s,status:'error',message:'财报更新未完成，请重试'};}}));results.push(...rows);}return results;
 }
-export async function editEarnings(symbol:string,date:string|null,mode:'manual'|'auto'){
+export async function editEarnings(symbol:string,date:string|null,mode:'manual'|'auto'){return withMarketWrite(()=>editEarningsOwned(symbol,date,mode));}
+async function editEarningsOwned(symbol:string,date:string|null,mode:'manual'|'auto'){
  const item=await instrument(symbol);if(!item||symbol==='SPY')throw new Error('未知标的');if(date!==null&&!validDate(date))throw new Error('财报日期格式无效');
  const now=new Date(),stamp=now.toISOString(),token=crypto.randomUUID();const effective=mode==='manual'?date:null;
  await db().batch([db().prepare("INSERT INTO earnings_calendar(symbol,date,status,source,mode,checked_at,write_token,revision,needs_recompute) VALUES (?,?,?,?,?,?,?,1,1) ON CONFLICT(symbol) DO UPDATE SET date=excluded.date,end_date=NULL,status=excluded.status,timing='unknown',source=excluded.source,source_url=NULL,mode=excluded.mode,checked_at=excluded.checked_at,next_check=0,error=NULL,needs_recompute=1,revision=earnings_calendar.revision+1,write_token=excluded.write_token").bind(symbol,effective,effective?'confirmed':'unavailable',mode==='manual'?'人工登记':'公开财报日历',mode,stamp,token),db().prepare('INSERT INTO earnings_events(symbol,date,known_at,source,recorded_at,confidence,timing) VALUES (?,?,?,?,?,?,?)').bind(symbol,effective,visibleDate(now),mode==='manual'?'manual':'auto-reset',stamp,effective?'confirmed':'unavailable','unknown'),db().prepare('UPDATE instruments SET event_date=?,event_known_at=? WHERE symbol=?').bind(effective,visibleDate(now),symbol)]);
