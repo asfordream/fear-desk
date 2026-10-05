@@ -45,3 +45,20 @@ next-env.d.ts
 /.codex/
 /outputs/
 /work/
+# Private local review databases, broker identity and evidence
+/.review-state/
+/local-review/__pycache__/
+
+/.gstack/qa-reports/
+
+# Bundled private ledger runtime
+/review-ledger/.venv/
+**/__pycache__/
+*.pyc
+*.sqlite
+*.sqlite3
+*.db
+*.sqlite-shm
+*.sqlite-wal
+*.sqlite3-shm
+*.sqlite3-wal

@@ -1,4 +1,5 @@
 import vinext from "vinext";
+import { localReview } from "./build/local-review-plugin.mjs";
 import { defineConfig } from "vite";
 import hostingConfig from "./.openai/hosting.json";
 import { readExecutionProfile } from "./scripts/execution-profile.mjs";
@@ -62,6 +63,7 @@ export default defineConfig(async ({ command }) => {
         : {}),
     },
     plugins: [
+      localReview(),
       vinext(),
       sites({ mockAuth: !managedLinux }),
       connectorPreview(),
