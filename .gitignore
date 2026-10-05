@@ -62,3 +62,7 @@ next-env.d.ts
 *.sqlite-wal
 *.sqlite3-shm
 *.sqlite3-wal
+
+# Python runtime artifacts from the review branch must stay local across switches.
+__pycache__/
+*.py[cod]
