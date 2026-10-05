@@ -131,7 +131,17 @@ export async function drainJob(jobId:string,repository=new DailyRepository(),con
 }
 export async function resumeExisting(repository=new DailyRepository(),config:PipelineConfig={},source=providers,budgetMs=20_000){
  await repository.expireBudget();const start=performance.now(),signal=AbortSignal.timeout(budgetMs);let advanced=0;
- for(const item of await repository.existing(8)){if(performance.now()-start>budgetMs-1500)break;await repository.recoverExpired(item.id);if((await runSlice(item.id,repository,config,source,signal)).advanced)advanced++;}
+ // Re-scan between rounds for fairness; use the invocation budget instead of
+ // saving just one checkpoint per job per hourly recovery.
+ while(performance.now()-start<budgetMs-1500&&!signal.aborted){
+  let progressed=false;
+  for(const item of await repository.existing(8)){
+   if(performance.now()-start>=budgetMs-1500||signal.aborted)break;
+   await repository.recoverExpired(item.id);
+   if((await runSlice(item.id,repository,config,source,signal)).advanced){advanced++;progressed=true;}
+  }
+  if(!progressed)break;
+ }
  return {advanced,status:await repository.status()}; // No admission or delivery capability.
 }
 export async function originalScheduledDelivery(requestId:string,config:PipelineConfig,repository=new DailyRepository(),now=new Date()){

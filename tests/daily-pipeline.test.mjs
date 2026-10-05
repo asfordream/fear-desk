@@ -259,6 +259,28 @@ test('小时空扫描不创建日报、任务、请求或发送；累计预算�
  await resumeExisting(repo,fullConfig,fakeSource);assert.equal((await repo.job(accepted.job.id)).status,'failed');assert.equal(sql.prepare('SELECT COUNT(*) n FROM reports').get().n,0);
 });
 
+test('小时恢复在预算内连续推进已有任务，不再每小时仅保存一个检查点',async()=>{
+ reset();const accepted=await admitManual(id(161),repo,now);
+ const result=await resumeExisting(repo,fullConfig,fakeSource);
+ assert.equal((await repo.job(accepted.job.id)).status,'ready');assert.ok(result.advanced>1);
+ assert.equal(sql.prepare('SELECT COUNT(*) n FROM daily_requests').get().n,1);
+ assert.equal(sql.prepare('SELECT COUNT(*) n FROM deliveries').get().n,0);
+});
+
+test('手动续跑只接受已有人工请求，保存同一任务且不新建、不发送',async()=>{
+ reset();const accepted=await admitManual(id(162),repo,now),pending=[];
+ sql.prepare("UPDATE job_runs SET status='ready',active_key=NULL WHERE id=?").run(accepted.job.id);
+ const post=body=>POST(new Request('https://desk.example/api/reports',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}));
+ const response=await runWithExecutionContext({waitUntil:p=>pending.push(p)},()=>post({action:'continue',requestId:accepted.requestId}));
+ assert.equal(response.status,202);assert.equal((await response.json()).data.job.id,accepted.job.id);assert.equal(pending.length,1);
+ await Promise.all(pending);
+ assert.equal(sql.prepare('SELECT COUNT(*) n FROM daily_requests').get().n,1);
+ assert.equal(sql.prepare('SELECT COUNT(*) n FROM deliveries').get().n,0);
+ assert.equal((await post({action:'continue',requestId:id(999)})).status,400);
+ const scheduled=await admitScheduled(fullConfig,repo,new Date('2026-10-05T06:00Z'),id(163));
+ assert.equal((await post({action:'continue',requestId:scheduled.requestId})).status,400);
+});
+
 
 test('46只观察池完整两年历史分片容量与20秒drain，复核所有股票并只发布一次',async()=>{
  reset(Array.from({length:46},(_,i)=>'S'+String(i).padStart(2,'0')));
