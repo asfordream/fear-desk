@@ -45,3 +45,7 @@ next-env.d.ts
 /.codex/
 /outputs/
 /work/
+
+# Python runtime artifacts from the review branch must stay local across switches.
+__pycache__/
+*.py[cod]
