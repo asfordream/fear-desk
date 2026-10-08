@@ -125,8 +125,11 @@ export async function runSlice(jobId:string,repository=new DailyRepository(),con
 }
 export async function runFirstSlice(jobId:string,repository=new DailyRepository()){const job=await repository.job(jobId);return job?.stage==='freezePool'?runSlice(jobId,repository):{advanced:false};}
 export async function drainJob(jobId:string,repository=new DailyRepository(),config:PipelineConfig={},source=providers,budgetMs=20_000){
- const start=performance.now(),signal=AbortSignal.timeout(Math.max(1,budgetMs));let advanced=0;
- while(performance.now()-start<budgetMs-1500){const result=await runSlice(jobId,repository,config,source,signal);if(!result.advanced)break;advanced++;}
+ const start=performance.now();let advanced=0;
+ // The invocation budget decides whether to start another checkpoint. Once
+ // started, a checkpoint gets its own bounded timeout; reaching the invocation
+ // boundary is normal yielding, not a provider failure consuming a retry.
+ while(performance.now()-start<budgetMs-1500){const result=await runSlice(jobId,repository,config,source);if(!result.advanced)break;advanced++;}
  return {advanced,job:await repository.job(jobId)};
 }
 export async function resumeExisting(repository=new DailyRepository(),config:PipelineConfig={},source=providers,budgetMs=20_000){
