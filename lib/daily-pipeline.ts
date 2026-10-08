@@ -9,13 +9,30 @@ import {fetchEarnings,nyDate,visibleDate,type EarningsInfo} from './earnings-pro
 import {calendarInfo} from './earnings-read';
 import {sendScheduledReport} from './scheduled-delivery';
 import type {BotConfig} from './feishu';
+import {getRawDb} from '@/db';
+import type {Bar,Score} from './engine';
 
 export type PipelineConfig=BotConfig&{FINNHUB_API_KEY?:string};
 type ReportPart={stock:ReportStock;fingerprint:{symbol:string;market:string;earnings:string};earnings:FrozenEarnings};
 type Manifest={pool:Awaited<ReturnType<DailyRepository['pool']>>;requestedClosedDay:string;inputRevision:number};
 export type FrozenEarnings={info:EarningsInfo|null;events:EventDecision[];newEvent:EventDecision|null};
 export type PipelineProviders={market:(symbol:string,signal:AbortSignal)=>Promise<Market>;earnings:typeof fetchEarnings};
-const providers:PipelineProviders={market:(symbol,signal)=>fetchMarket(symbol,undefined,signal),earnings:fetchEarnings};
+export async function incrementalMarket(symbol:string,signal:AbortSignal,fetcher=fetchMarket){
+ const old=(await getRawDb().prepare('SELECT date,open,high,low,close,volume,raw_close AS rawClose,factor FROM bars WHERE symbol=? ORDER BY date').bind(symbol).all<Bar>()).results;
+ if(!old.length)return fetcher(symbol,undefined,signal);
+ let fresh=await fetcher(symbol,old.at(-3)?.date,signal);
+ const prior=new Map(old.map(b=>[b.date,b]));
+ const revised=fresh.bars.some(b=>{const p=prior.get(b.date);return p&&(['open','high','low','close','volume','rawClose','factor'] as const).some(k=>Math.abs((p[k]??0)-(b[k]??0))>Math.max(1e-6,Math.abs(p[k]??0)*1e-8));});
+ if(revised)fresh=await fetcher(symbol,old[0].date,signal);
+ for(const b of fresh.bars)prior.set(b.date,b);
+ return {...fresh,bars:[...prior.values()].sort((a,b)=>a.date.localeCompare(b.date))};
+}
+async function changedScores(symbol:string,rows:Score[]){
+ const old=(await getRawDb().prepare('SELECT date,payload FROM scores WHERE symbol=? ORDER BY date').bind(symbol).all<{date:string;payload:string}>()).results;
+ const prior=new Map(old.map(r=>[r.date,JSON.stringify(JSON.parse(r.payload))]));
+ return rows.filter(r=>prior.get(r.date)!==JSON.stringify(r));
+}
+const providers:PipelineProviders={market:incrementalMarket,earnings:fetchEarnings};
 class Incomplete extends Error{}
 
 async function admitted(requestId:unknown,source:'manual'|'schedule',sendIntent:'none'|'original_schedule',repository:DailyRepository,now:Date,scheduleOccurrence:string|null=null){
@@ -96,7 +113,9 @@ export async function runSlice(jobId:string,repository=new DailyRepository(),con
    if(!stock.latest||stock.latest.version!==VERSION)throw new Incomplete('目标评分行缺失或版本不一致');
    const semantic=earnings.info?{date:earnings.info.date,endDate:earnings.info.endDate,status:earnings.info.status,timing:earnings.info.timing,source:earnings.info.source,sourceUrl:earnings.info.sourceUrl,mode:earnings.info.mode}:null;
    const part:ReportPart={stock,fingerprint:{symbol:item.symbol,market:await hashFacts(market.bars),earnings:await hashFacts({semantic,events:earnings.events})},earnings};
-   return {advanced:await saved('calculate',[await encoded(item.symbol,'scores',rows),await encoded(item.symbol,'report',part)])};
+   // Keep the full calculation for formula correctness, but stage only new or
+   // revised score rows. The publication revision fence protects this baseline.
+   return {advanced:await saved('calculate',[await encoded(item.symbol,'scores',await changedScores(item.symbol,rows)),await encoded(item.symbol,'report',part)])};
   }
   const bundle=await repository.bundle(job),spy=await repository.input<Market>(job,'SPY','market');if(!spy)throw new Incomplete('SPY 冻结输入缺失');
   const previousDate=spy.bars.at(-2)?.date??null,stocks:ReportStock[]=[],earningsValues:{symbol:string;value:FrozenEarnings}[]=[],fingerprints:ReportPart['fingerprint'][]=[];
