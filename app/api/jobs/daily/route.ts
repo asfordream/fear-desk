@@ -1,6 +1,6 @@
 import {env} from 'cloudflare:workers';
 import {DailyRepository} from '@/lib/daily-repository';
-import {admitScheduled,drainJob,resumeExisting,originalScheduledDelivery} from '@/lib/daily-pipeline';
+import {admitScheduled,drainJob,resumeExisting,originalScheduledDelivery,scheduleFirstSlice} from '@/lib/daily-pipeline';
 
 function guard(req:Request){
  const config=env as typeof env&{DAILY_SERVICE_ENABLED?:string};
@@ -22,8 +22,18 @@ export async function POST(req:Request){
   }
   const accepted=await admitScheduled(env,repo,new Date(),body.requestId);
   if('status' in accepted)return reply(accepted);
-  const result=await drainJob(accepted.job.id,repo,env);
-  const delivery=await originalScheduledDelivery(accepted.requestId,env,repo);
-  return reply({requestId:accepted.requestId,advanced:result.advanced,job:(await repo.status()).jobs.find(j=>j.id===accepted.job.id),delivery},202);
+  if(['ready','reused'].includes(accepted.job.status)){
+   return reply({requestId:accepted.requestId,job:accepted.job,
+    delivery:await originalScheduledDelivery(accepted.requestId,env,repo)});
+  }
+  // Use the same request-scoped continuation as the working manual generation
+  // endpoint. A scheduler HTTP timeout must not cancel the leased computation.
+  const firstSliceScheduled=scheduleFirstSlice(accepted.job.id,async()=>{
+   await drainJob(accepted.job.id,new DailyRepository(),env);
+   await originalScheduledDelivery(accepted.requestId,env,new DailyRepository());
+  });
+  return reply({requestId:accepted.requestId,firstSliceScheduled,job:accepted.job,
+   delivery:{status:'pending',message:'发送在后台生成完成后独立核对；受理不表示已送达'},
+   continuation:{action:'daily',requestId:accepted.requestId,pollAfterSeconds:3}},firstSliceScheduled?202:503);
  }catch{return Response.json({error:'本次执行未完成；持久任务与检查点保留，请读取状态'},{status:503,headers:{'Cache-Control':'no-store'}});}
 }

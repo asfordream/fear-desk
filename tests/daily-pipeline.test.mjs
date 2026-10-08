@@ -306,3 +306,12 @@ test('retry末尾断言失败时回滚attempt和job，旧owner不能部分结束
  assert.equal(sql.prepare('SELECT status FROM daily_attempts WHERE id=?').get(claim.job.attempt_id).status,'running');
  sql.exec('DROP TRIGGER sabotage_retry');await repo.retry(claim.fence,'test-only');assert.equal((await repo.job(accepted.job.id)).status,'retry_wait');
 });
+
+
+test('drain预算到期不截断已经开始的检查点或消耗失败次数',async()=>{
+ reset();const accepted=await admitManual(id(180),repo,now);
+ await runSlice(accepted.job.id,repo,fullConfig,fakeSource);
+ const slowSource={...fakeSource,market:async(symbol,signal)=>{await new Promise(resolve=>setTimeout(resolve,1600));signal.throwIfAborted();return fakeSource.market(symbol,signal);}};
+ const result=await drainJob(accepted.job.id,repo,fullConfig,slowSource,1550);
+ assert.equal(result.advanced,1);assert.equal(result.job.failed_attempts,0);assert.equal(result.job.stage,'fetchMarket');assert.equal(result.job.status,'queued');
+});
