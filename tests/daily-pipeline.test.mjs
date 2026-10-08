@@ -38,7 +38,7 @@ const hooks=registerHooks({resolve(specifier,context,next){
   return next(specifier,context);
 },load(url,context,next){if(url.endsWith('/lib/initial-market.json'))return {format:'module',source:'export default '+readFileSync(fileURLToPath(url),'utf8'),shortCircuit:true};return next(url,context);}});
 const {DailyRepository}=await import('../lib/daily-repository.ts');
-const {admitManual,runFirstSlice,scheduleFirstSlice,runSlice,drainJob,resumeExisting,admitScheduled,originalScheduledDelivery}=await import('../lib/daily-pipeline.ts');
+const {admitManual,runFirstSlice,scheduleFirstSlice,runSlice,drainJob,resumeExisting,admitScheduled,originalScheduledDelivery,incrementalMarket}=await import('../lib/daily-pipeline.ts');
 const {latestClosedTradingDay,scheduledReportWindow}=await import('../lib/trading-calendar.ts');
 const {GET,POST}=await import('../app/api/reports/route.ts');
 const repo=new DailyRepository(database);
@@ -314,4 +314,34 @@ test('drain预算到期不截断已经开始的检查点或消耗失败次数',a
  const slowSource={...fakeSource,market:async(symbol,signal)=>{await new Promise(resolve=>setTimeout(resolve,1600));signal.throwIfAborted();return fakeSource.market(symbol,signal);}};
  const result=await drainJob(accepted.job.id,repo,fullConfig,slowSource,1550);
  assert.equal(result.advanced,1);assert.equal(result.job.failed_attempts,0);assert.equal(result.job.stage,'fetchMarket');assert.equal(result.job.status,'queued');
+});
+
+
+test('已有评分的再次生成仅保存发生变化的评分，历史与日报结果保持一致',async()=>{
+ reset();const first=await admitManual(id(190),repo,now);await finish(first.job.id);
+ const original=sql.prepare('SELECT payload FROM scores ORDER BY date').all();
+ const second=await admitManual(id(191),repo,now);const job=await finish(second.job.id);
+ assert.equal(job.status,'reused');assert.deepEqual(sql.prepare('SELECT payload FROM scores ORDER BY date').all(),original);
+ const staged=await repo.input(job,'AAA','scores');assert.deepEqual(staged,[]);
+ const saved=JSON.parse(sql.prepare('SELECT payload FROM reports WHERE id=?').get(job.report_id).payload);assert.equal(saved.summary.complete,true);
+});
+
+test('日报行情重叠最近三条增量读取，发生修订则从固定起点回填',async()=>{
+ reset();const first=await admitManual(id(192),repo,now);await finish(first.job.id);
+ const cached=barsAt(),calls=[];
+ const market=await incrementalMarket('AAA',new AbortController().signal,async(symbol,start)=>{calls.push(start);return {...await fakeSource.market(symbol),bars:cached.slice(-3)};});
+ assert.deepEqual(calls,[cached.at(-3).date]);assert.equal(market.bars.length,cached.length);
+ const revisedCalls=[];
+ const revised=await incrementalMarket('AAA',new AbortController().signal,async(symbol,start)=>{revisedCalls.push(start);const data=await fakeSource.market(symbol);return {...data,bars:data.bars.map((b,i)=>i===data.bars.length-1?{...b,close:b.close+1}:b)};});
+ assert.deepEqual(revisedCalls,[cached.at(-3).date,cached[0].date]);assert.equal(revised.bars.at(-1).close,cached.at(-1).close+1);
+});
+
+test('新交易日仍按完整历史公式计算，只新增当天评分且保留历史评分',async()=>{
+ reset();const first=await admitManual(id(193),repo,now);await finish(first.job.id);
+ const original=sql.prepare('SELECT date,payload FROM scores ORDER BY date').all();
+ const source={...fakeSource,market:async symbol=>{const m=await fakeSource.market(symbol);return {...m,bars:[...m.bars,{...m.bars.at(-1),date:'2026-10-05',open:153,high:155,low:150,close:154,rawClose:154}]};}};
+ const second=await admitManual(id(194),repo,new Date('2026-10-06T03:00Z'));const job=await finish(second.job.id,source);
+ assert.equal(job.status,'ready');const staged=await repo.input(job,'AAA','scores');assert.equal(staged.length,1);assert.equal(staged[0].date,'2026-10-05');
+ assert.deepEqual(sql.prepare('SELECT date,payload FROM scores WHERE date<=? ORDER BY date').all(target),original);
+ assert.equal(sql.prepare('SELECT COUNT(*) n FROM scores').get().n,511);
 });
