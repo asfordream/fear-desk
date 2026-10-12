@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {scoreChange, changeTone, compareScoreChanges} from '../lib/presentation.ts';
+import {scoreChange, changeTone, compareScoreChanges,manualSendState} from '../lib/presentation.ts';
 
 test('a score without a valid previous score has unknown change', () => {
   assert.equal(scoreChange({score: 81}, null), null);
@@ -25,4 +25,15 @@ test('unknown changes sort after known negative changes', () => {
     {symbol:'FLAT', latest:{score:50}, previous:{score:50}},
   ];
   assert.deepEqual(rows.sort(compareScoreChanges).map(x=>x.symbol), ['UP','FLAT','DOWN','NEW']);
+});
+
+test('manual send stays visible with a disabled state after delivery',()=>{
+ assert.equal(manualSendState({configured:true,complete:true,status:'sent'}).label,'已发送');
+ assert.equal(manualSendState({configured:true,complete:true,status:'sent'}).disabled,true);
+ assert.equal(manualSendState({configured:true,complete:true,status:'sending'}).disabled,true);
+ assert.equal(manualSendState({configured:true,complete:true,status:'unknown'}).disabled,true);
+ assert.equal(manualSendState({configured:true,complete:true,status:'failed'}).disabled,false);
+ assert.equal(manualSendState({configured:true,complete:true}).disabled,false);
+ assert.equal(manualSendState({configured:false,complete:true}).disabled,true);
+ assert.equal(manualSendState({configured:true,complete:false}).disabled,true);
 });
