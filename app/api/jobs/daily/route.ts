@@ -1,7 +1,7 @@
 import {env} from 'cloudflare:workers';
 import {jobDto} from '@/lib/daily-contract';
 import {DailyRepository} from '@/lib/daily-repository';
-import {admitScheduled,drainJob,resumeExisting,originalScheduledDelivery} from '@/lib/daily-pipeline';
+import {admitScheduled,drainJob,resumeExisting,originalScheduledDelivery,scheduleFirstSlice} from '@/lib/daily-pipeline';
 
 function guard(req:Request){
  const config=env as typeof env&{DAILY_SERVICE_ENABLED?:string};
@@ -27,16 +27,17 @@ export async function POST(req:Request){
    return reply({requestId:accepted.requestId,job:accepted.job,
     delivery:await originalScheduledDelivery(accepted.requestId,env,repo)});
   }
-  // A scheduled caller needs the completed slice state, not an admission
-  // snapshot. Keep continuation on the request so its result is observable;
-  // the durable checkpoints survive a disconnected caller. A larger bounded
-  // batch reduces repeated scheduler/model round trips within its 8m budget.
-  const result=await drainJob(accepted.job.id,repo,env,undefined,45_000);
-  const job=result.job?jobDto(result.job):accepted.job;
-  const complete=['ready','reused'].includes(job.status);
-  const delivery=complete?await originalScheduledDelivery(accepted.requestId,env,repo)
-   :{status:'pending',message:'日报尚未完整保存；本日发送意图保留'};
-  return reply({requestId:accepted.requestId,job,delivery,advanced:result.advanced,
-   continuation:complete?null:{action:'daily',requestId:accepted.requestId,pollAfterSeconds:0}},complete?200:202);
+  // Return before the scheduler/client HTTP timeout and keep the bounded work
+  // attached to the Worker execution context. A later call reuses the same
+  // durable request and checkpoint; claim fencing prevents duplicate workers.
+  const continuationScheduled=scheduleFirstSlice(accepted.job.id,async()=>{
+   const result=await drainJob(accepted.job.id,new DailyRepository(),env,undefined,25_000);
+   const job=result.job?jobDto(result.job):accepted.job;
+   if(['ready','reused'].includes(job.status))await originalScheduledDelivery(accepted.requestId,env,new DailyRepository());
+  });
+  return reply({requestId:accepted.requestId,job:accepted.job,
+   delivery:{status:'pending',message:'日报在云端后台续跑；本日发送意图保留，完成后独立核对飞书回执'},
+   continuation:continuationScheduled?{action:'daily',requestId:accepted.requestId,pollAfterSeconds:25}:null,
+   continuationScheduled},continuationScheduled?202:503);
  }catch{return Response.json({error:'本次执行未完成；持久任务与检查点保留，请读取状态'},{status:503,headers:{'Cache-Control':'no-store'}});}
 }
