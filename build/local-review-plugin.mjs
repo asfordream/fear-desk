@@ -21,9 +21,8 @@ export function createReviewMiddleware(config) {
   const { bootstrap, serviceToken, port, servicePort } = config;
   const origin = `http://127.0.0.1:${port}`;
   const target = `http://127.0.0.1:${servicePort}`;
-  let session = randomBytes(32).toString('hex');
-  let csrf = randomBytes(32).toString('hex');
-  let expires = 0;
+  const session = randomBytes(32).toString('hex');
+  const csrf = randomBytes(32).toString('hex');
   return async (req, res, next) => {
     const path = req.url?.split('?')[0] ?? '';
     if (!path.startsWith('/api/review/')) return next();
@@ -31,29 +30,23 @@ export function createReviewMiddleware(config) {
     if (req.headers.host !== `127.0.0.1:${port}` || (req.headers.origin && req.headers.origin !== origin) ||
         ![undefined, 'same-origin', 'none'].includes(req.headers['sec-fetch-site'])) return error(res, 403, 'ACCESS_DENIED', '拒绝非本机同源请求');
     const cookie = req.headers.cookie?.split(';').map(x => x.trim()).find(x => x.startsWith('feardesk_review='))?.slice(16);
-    const authenticated = Date.now() < expires && equal(cookie, session);
+    const authenticated = equal(cookie, session);
     if (path === '/api/review/v1/session') {
       if (req.method === 'GET') {
         if (!authenticated) return error(res, 401, 'SESSION_REQUIRED', '请从本机启动入口解锁复盘');
-        return reply(res, 200, { data: { csrf, expires_at: new Date(expires).toISOString() } });
+        return reply(res, 200, { data: { csrf, expires_at: null } });
       }
       if (req.method !== 'POST' || req.headers.origin !== origin) return error(res, 403, 'ACCESS_DENIED', '本机解锁请求无效');
       try {
         const input = JSON.parse((await body(req)).toString('utf8'));
         if (!equal(input.capability, bootstrap)) return error(res, 403, 'ACCESS_DENIED', '本机启动凭据无效');
-        // Expiry belongs to an authenticated browser session, not server uptime.
-        // Only a valid local capability can renew; expired cookies and CSRF tokens
-        // stay invalid. Reopening during a live session does not extend its TTL.
-        if (Date.now() >= expires) {
-          session = randomBytes(32).toString('hex');
-          csrf = randomBytes(32).toString('hex');
-          expires = Date.now() + 12 * 3600_000;
-        }
-        return reply(res, 200, { data: { csrf, expires_at: new Date(expires).toISOString() } },
-          { 'set-cookie': `feardesk_review=${session}; Path=/api/review/; HttpOnly; SameSite=Strict; Max-Age=43200` });
+        // Local sessions last for this service process and browser session.
+        // Restarting the service generates new session and CSRF secrets.
+        return reply(res, 200, { data: { csrf, expires_at: null } },
+          { 'set-cookie': `feardesk_review=${session}; Path=/api/review/; HttpOnly; SameSite=Strict` });
       } catch (e) { return error(res, e.message === 'TOO_LARGE' ? 413 : 422, 'INVALID_INPUT', '解锁请求格式无效'); }
     }
-    if (!authenticated) return error(res, 401, 'SESSION_REQUIRED', '本机复盘会话未解锁或已到期');
+    if (!authenticated) return error(res, 401, 'SESSION_REQUIRED', '本机复盘会话未解锁或服务已重启');
     if (!['GET','POST'].includes(req.method)) return error(res, 405, 'METHOD_NOT_ALLOWED', '操作方式不支持');
     if (req.method !== 'GET' && (req.headers.origin !== origin || !equal(req.headers['x-review-csrf'], csrf))) return error(res, 403, 'CSRF_REQUIRED', '请刷新本机页面后重试');
     // Fixed namespace and target. Never forward user credentials/headers to Python.
