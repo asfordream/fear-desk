@@ -1,0 +1,10 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {Readable} from 'node:stream';
+import {signalProxy} from '../build/local-signal-proxy.mjs';
+async function invoke(url,options={}){let forwarded=null,next=false;const req=Readable.from([]);Object.assign(req,{url,method:options.method??'GET',headers:{host:'127.0.0.1:5191',...options.headers}});const res={writeHead(status,headers){this.status=status;this.headers=headers;},end(body){this.body=String(body);}};await signalProxy({enabled:options.enabled??true,fetcher:async(url,init)=>{forwarded={url,init};if(options.down)throw Error('offline');return Response.json({data:'shared'});}})(req,res,()=>{next=true;});return {res,forwarded,next};}
+test('report and overview share fixed scheduler service',async()=>{for(const url of ['/api/desk','/api/reports','/api/reports/'+'a'.repeat(64),'/api/stocks/TSLA']){const x=await invoke(url);assert.equal(x.forwarded.url,'http://127.0.0.1:5173'+url);assert.equal(x.res.status,200);assert.equal(x.res.headers['cache-control'],'no-store');}});
+test('private ledger and cloud runtime are untouched',async()=>{assert.equal((await invoke('/api/review/v1/live/overview')).next,true);assert.equal((await invoke('/api/desk',{enabled:false})).next,true);});
+test('cross-origin writes and non-loopback hosts rejected',async()=>{for(const headers of [{host:'evil.test'},{origin:'https://evil.test'},{'sec-fetch-site':'cross-site'}])assert.equal((await invoke('/api/desk',{headers})).res.status,403);assert.equal((await invoke('/api/sync',{method:'POST'})).res.status,403);});
+test('upstream failure never falls back to stale private DB',async()=>{const x=await invoke('/api/reports',{down:true});assert.equal(x.res.status,503);assert.equal(x.next,false);assert.match(x.res.body,/未回退/);});
+test('caller cookies never forwarded',async()=>{const x=await invoke('/api/reports',{headers:{cookie:'private=secret'}});assert.equal(x.forwarded.init.headers.cookie,'__sites_local_auth=1');assert.equal(x.forwarded.init.redirect,'error');});
