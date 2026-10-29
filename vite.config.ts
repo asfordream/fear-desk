@@ -1,3 +1,4 @@
+import { localSignalProxy } from './build/local-signal-proxy.mjs';
 import vinext from "vinext";
 import { defineConfig } from "vite";
 import hostingConfig from "./.openai/hosting.json";
@@ -62,6 +63,7 @@ export default defineConfig(async ({ command }) => {
         : {}),
     },
     plugins: [
+      localSignalProxy(),
       vinext(),
       sites({ mockAuth: !managedLinux }),
       connectorPreview(),
