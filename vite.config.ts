@@ -1,4 +1,3 @@
-import { localSignalProxy } from './build/local-signal-proxy.mjs';
 import vinext from "vinext";
 import { localReview } from "./build/local-review-plugin.mjs";
 import { defineConfig } from "vite";
@@ -64,7 +63,6 @@ export default defineConfig(async ({ command }) => {
         : {}),
     },
     plugins: [
-      localSignalProxy(),
       localReview(),
       vinext(),
       sites({ mockAuth: !managedLinux }),

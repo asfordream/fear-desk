@@ -4,9 +4,11 @@ import { fileURLToPath } from 'node:url';
 import { resolve, dirname } from 'node:path';
 import { mkdir, writeFile, readFile, access } from 'node:fs/promises';
 import net from 'node:net';
+import {migrateLocalSignals} from './local-signal-migrations.mjs';
 const root = fileURLToPath(new URL('../', import.meta.url));
 const source = resolve(process.env.REVIEW_LEDGER_PROJECT ?? resolve(root, 'review-ledger'));
-const python = process.env.REVIEW_PYTHON ?? resolve(source, '.venv/bin/python');
+const localRuntime = await readFile(resolve(root,'.sites-runtime/local-daily/config.json'),'utf8').then(JSON.parse).catch(()=>({}));
+const python = process.env.REVIEW_PYTHON ?? localRuntime.reviewPython ?? resolve(source, '.venv/bin/python');
 const state = resolve(process.env.REVIEW_STATE ?? resolve(root, '.review-state'));
 let brokerPython=process.env.REVIEW_BROKER_PYTHON;
 if(!brokerPython){
@@ -26,9 +28,11 @@ for (const port of [webPort, servicePort]) {
   await new Promise((ok, fail) => { const server = net.createServer(); server.once('error', () => fail(new Error(`端口 ${port} 已占用；没有停止或修改旧服务`))); server.listen(port, '127.0.0.1', () => server.close(ok)); });
 }
 await mkdir(state, { recursive: true, mode: 0o700 });
+const migration = await migrateLocalSignals(root);
+if (migration.applied) console.log(`本地信号数据库已备份并升级 ${migration.applied} 项结构迁移。`);
 const bootstrap = randomBytes(32).toString('hex');
 const serviceToken = randomBytes(32).toString('hex');
-const env = { ...process.env, ...(brokerPython?{REVIEW_BROKER_PYTHON:brokerPython}:{}), PYTHONPATH: [resolve(source, 'src'), resolve(root, 'local-review')].join(':'), REVIEW_BOOTSTRAP: bootstrap,
+const env = { ...process.env, NODE_TLS_REJECT_UNAUTHORIZED:'1', NODE_USE_SYSTEM_CA:'1', NODE_EXTRA_CA_CERTS:'/etc/ssl/cert.pem', ...(brokerPython?{REVIEW_BROKER_PYTHON:brokerPython}:{}), PYTHONPATH: [resolve(source, 'src'), resolve(root, 'local-review')].join(':'), REVIEW_BOOTSTRAP: bootstrap,
   REVIEW_SERVICE_TOKEN: serviceToken, REVIEW_STATE: state, REVIEW_WEB_PORT: String(webPort), REVIEW_SERVICE_PORT: String(servicePort) };
 const children = [];
 let stopping = false;
@@ -49,7 +53,7 @@ start(python,[resolve(root,'local-review/service.py')]);
 start(process.execPath,[resolve(root,'scripts/run-framework.mjs'),'dev','--host','127.0.0.1','--port',String(webPort),'--strictPort']);
 const url = `http://127.0.0.1:${webPort}/review#local=${bootstrap}`;
 await writeFile(resolve(state,'entry-url.txt'),url+'\n',{mode:0o600});
-console.log(`FearDesk 两服务启动中：网页 ${webPort}，私人核算 ${servicePort}。本机解锁链接保存在 .review-state/entry-url.txt。`);
+console.log(`FearDesk 统一入口启动中：网页 ${webPort}，私人核算 ${servicePort}。本机解锁链接保存在 .review-state/entry-url.txt。`);
 if (!process.argv.includes('--no-open')) {
   // Browser remains the only user entry; wait for readiness before opening.
   const ready = setInterval(async () => { try { const r=await fetch(`http://127.0.0.1:${webPort}/review`); if(r.ok) {clearInterval(ready);spawn('open',[url],{stdio:'ignore'});} } catch {} },1000);

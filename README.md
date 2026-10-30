@@ -1,3 +1,11 @@
+# FearDesk 本机工作台
+
+主要开发分支为 `feardeskreview`。信号、收盘日报、推送和复盘统一从本仓库运行。
+
+[文档索引](docs/README.md) · [本机运行指南](docs/guides/local-unified.md) · [当前整合版本](docs/versions/v0.2.20/README.md)
+
+以下保留框架基础说明：
+
 # vinext-starter
 
 A clean full-stack starter running on [vinext](https://github.com/cloudflare/vinext), with optional Cloudflare D1 and Drizzle support.
@@ -126,7 +134,7 @@ The portable build runs Vinext directly without a host `timeout` command. The ma
 - [Drizzle D1 Guide](https://orm.drizzle.team/docs/get-started/d1-new)
 # 每日运行与飞书日报
 
-`/reports` 提供数据库日报快照、飞书卡片内容预览、JSON 导出及任务状态。详细配置见 [飞书接入说明](docs/feishu-setup.md)。新增迁移 `drizzle/0001_lowly_junta.sql`、`drizzle/0002_panoramic_shockwave.sql` 必须在已应用0000的库依次执行；保存原有行情和人工财报登记。
+`/reports` 提供数据库日报快照、飞书卡片内容预览、JSON 导出及任务状态。详细配置见 [飞书接入说明](docs/guides/legacy/feishu-setup.md)。新增迁移 `drizzle/0001_lowly_junta.sql`、`drizzle/0002_panoramic_shockwave.sql` 必须在已应用0000的库依次执行；保存原有行情和人工财报登记。
 
 Worker带定时入口及UTC Cron配置；服务器默认禁止发送。需要实际部署、D1迁移、机器人秘密变量及公网链接配置后，才能启用每天群推送。本地预览不代表线上定时任务已运行。
 
@@ -138,4 +146,4 @@ Worker带定时入口及UTC Cron配置；服务器默认禁止发送。需要实
 - 已有数据库在0002之后依次应用 `drizzle/0003_lame_shinobi_shaw.sql` 和 `drizzle/0004_good_nextwave.sql`。
 - `node --experimental-strip-types --test tests/*.test.mjs`：31项自动化测试（Node22.16+）。
 
-默认不需要付费财报API，第三方日期标为预计；财报正文/财务指标未接入。新增信息从纽约下一自然日起用于计算。功能方案见 [自动财报与版本页](docs/earnings-and-updates-plan.md)。
+默认不需要付费财报API，第三方日期标为预计；财报正文/财务指标未接入。新增信息从纽约下一自然日起用于计算。功能方案见 [自动财报与版本页](docs/archive/legacy/earnings-and-updates-plan.md)。

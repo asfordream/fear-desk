@@ -1,0 +1,27 @@
+# FearDesk 文档入口
+
+## 当前状态
+
+- 主要开发分支：`feardeskreview`。
+- 本机整合版本：[v0.2.20](versions/v0.2.20/README.md)。完成状态以该版本验证记录为准。
+- 待开发功能：[交易规则与观察需求](features/trading-rules/draft/PRD.md)、[原型](features/trading-rules/draft/prototype.svg)。尚未分配发布版本，不能当成已实现。
+
+## 目录约定
+
+| 目录 | 内容 |
+|---|---|
+| `versions/<version>/` | 每个已开发版本自己的需求、方案、验证、发布与迁移记录 |
+| `features/<feature>/draft/` | 未定版本的需求与原型，评审通过后关联到目标版本 |
+| `guides/` | 跨版本使用和运维指南 |
+| `archive/legacy/` | 历史原始文档，保留原标题，不伪造所属发布版本 |
+
+新增版本使用 `PRD.md`、`architecture.md`、`verification.md`、`release.md`；原型放 `prototypes/`。不是每个旧版本都能补出真实PRD，不根据当前功能倒填历史。
+
+## 日常入口
+
+- [统一本机运行说明](guides/local-unified.md)
+- [本地各目录角色](guides/directory-map.md)
+- [复盘使用指南](guides/review-user-guide.md)
+- [历史文件迁移映射](archive/document-moves.md)
+
+原信号分支与旧运行目录保留可恢复副本，不删除私人资料或历史数据库。其 export、qa 等目录目前仅建立角色说明，不自动移动大型运行产物。

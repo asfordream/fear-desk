@@ -1,6 +1,7 @@
-export const APP_VERSION='0.2.19';
-export const DEVELOPMENT_RELEASE={version:'0.2.19',status:'released',title:'复盘总览中文命名',limits:['仅调整网页显示名称。']} as const;
+export const APP_VERSION='0.2.20';
+export const DEVELOPMENT_RELEASE={version:'0.2.20',status:'released',title:'统一本机工作台与文档归档',limits:['只更新复盘主开发分支；旧目录保留回退。','交易规则仍为需求草稿，未开发。']} as const;
 export const RELEASES=[
+ {version:'0.2.20',date:'2026-10-30',title:'统一本机工作台与文档归档',changes:['feardeskreview成为主要开发与唯一网页入口，日报调度调用5191并共享本仓库信号库。','完整行情日报、私人运行状态及发送去重记录备份迁移，旧5173服务停用且原目录保留。','需求、原型、架构、验证与发布资料按版本和待开发功能分类，增加文档索引。'],limits:['内部复盘核算仍为独立子进程，不对用户提供第二个网页入口。','本次不新增交易规则功能、不更新云端或旧信号分支；重启电脑及下一次定时实际送达需单独验收。']},
  {version:'0.2.19',date:'2026-10-30',title:'复盘总览中文命名',changes:['网页导航及复盘页品牌名称统一显示为复盘总览。'],limits:['代码分支和页面地址保持原名称。']},
  {version:'0.2.18',date:'2026-10-30',title:'简化主导航',changes:['移除市场总览与个股页主导航中的计算口径快捷入口。'],limits:['本次不修改计算公式、数据或定时推送。']},
  {version:'0.2.17',date:'2026-10-29',title:'复盘导航入口补齐',changes:['收盘日报、历史日报及版本与需求页面补齐feardeskreview导航入口，切换页面后可直接返回复盘。'],limits:['仅更新复盘分支的本机页面；不更改信号计算或发送任务。']},

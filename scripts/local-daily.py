@@ -22,7 +22,7 @@ from zoneinfo import ZoneInfo
 
 ROOT = Path(__file__).resolve().parents[1]
 STATE = ROOT / '.sites-runtime/local-daily'
-BASE = 'http://127.0.0.1:5173'
+BASE = 'http://127.0.0.1:5191'
 TZ = ZoneInfo('Asia/Shanghai')
 BLOCKED = {'sent', 'sending', 'unknown'}
 
@@ -250,8 +250,11 @@ def serve():
                WRANGLER_SEND_METRICS='false')
     node = load(STATE / 'config.json', {})['node']
     os.chdir(ROOT)
-    os.execve(node, [node, '--use-system-ca', str(ROOT / 'scripts/run-framework.mjs'), 'dev',
-                     '--hostname', '127.0.0.1', '--port', '5173'], env)
+    config = load(STATE / 'config.json', {})
+    if not config.get('reviewPython'):
+        raise RuntimeError('请配置复盘核算Python解释器')
+    env.update(REVIEW_PYTHON=config['reviewPython'], REVIEW_STATE=str(ROOT / '.review-state'))
+    os.execve(node, [node, str(ROOT / 'scripts/run-review-local.mjs'), '--no-open'], env)
 
 
 def install():
@@ -260,14 +263,16 @@ def install():
         raise RuntimeError('请先配置本地运行时路径')
     agents = Path.home() / 'Library/LaunchAgents'
     agents.mkdir(parents=True, exist_ok=True)
-    for suffix, extra in [('server', {'KeepAlive': True}), ('daily', {
+    logs = Path.home() / 'Library/Logs/FearDesk'
+    logs.mkdir(parents=True, exist_ok=True, mode=0o700)
+    for suffix, extra in [('review', {'KeepAlive': True}), ('daily', {
         'StartInterval': 300, 'StartCalendarInterval': {'Hour': 14, 'Minute': 0}})]:
         label = 'cn.feardesk.local.' + suffix
         value = {'Label': label, 'ProgramArguments': [config['python'], str(Path(__file__).resolve()),
-            'serve' if suffix == 'server' else 'tick'], 'WorkingDirectory': str(ROOT),
+            'serve' if suffix == 'review' else 'tick'], 'WorkingDirectory': str(ROOT),
             'RunAtLoad': True, 'ThrottleInterval': 30,
-            'StandardOutPath': str(STATE / (suffix + '.log')),
-            'StandardErrorPath': str(STATE / (suffix + '-error.log')),
+            'StandardOutPath': str(logs / (suffix + '.log')),
+            'StandardErrorPath': str(logs / (suffix + '-error.log')),
             'EnvironmentVariables': {'PATH': '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin'}, **extra}
         path = agents / (label + '.plist')
         if path.exists():
