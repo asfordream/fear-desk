@@ -50,7 +50,7 @@ export function createReviewMiddleware(config) {
     if (!['GET','POST'].includes(req.method)) return error(res, 405, 'METHOD_NOT_ALLOWED', '操作方式不支持');
     if (req.method !== 'GET' && (req.headers.origin !== origin || !equal(req.headers['x-review-csrf'], csrf))) return error(res, 403, 'CSRF_REQUIRED', '请刷新本机页面后重试');
     // Fixed namespace and target. Never forward user credentials/headers to Python.
-    if (!/^\/api\/review\/v1\/(health|(?:demo|live)\/(?:overview|signals|cases|rules|reports|evidence|imports|documents|fill-patches|resolutions|groups|tasks|demo)(?:\/[a-zA-Z0-9_-]+){0,3})$/.test(path)) return error(res, 404, 'NOT_FOUND', '接口不存在');
+    if (!/^\/api\/review\/v1\/(health|(?:demo|live)\/(?:overview|signals|cases|rules|watch-rules|reports|evidence|imports|documents|fill-patches|resolutions|groups|tasks|demo)(?:\/[a-zA-Z0-9_-]+){0,3})$/.test(path)) return error(res, 404, 'NOT_FOUND', '接口不存在');
     try {
       const payload = req.method === 'GET' ? undefined : await body(req);
       const response = await fetch(target + req.url, {

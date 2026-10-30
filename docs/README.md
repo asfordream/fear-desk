@@ -3,8 +3,9 @@
 ## 当前状态
 
 - 主要开发分支：`feardeskreview`。
-- 本机整合版本：[v0.2.20](versions/v0.2.20/README.md)。完成状态以该版本验证记录为准。
-- 待开发功能：[交易规则与观察需求](features/trading-rules/draft/PRD.md)、[原型](features/trading-rules/draft/prototype.svg)。尚未分配发布版本，不能当成已实现。
+- 当前功能版本：[v0.3.0](versions/v0.3.0/README.md)。
+- 本机整合历史：[v0.2.20](versions/v0.2.20/README.md)。完成状态以对应验证记录为准。
+- 交易规则与观察：[v0.3.0需求与方案](versions/v0.3.0/PRD.md)；[原始讨论草稿](features/trading-rules/draft/PRD.md)保留追溯。实际验收状态见该版本验证与发布记录。
 
 [新版本资料模板](templates/version/README.md)
 

@@ -190,6 +190,30 @@ class LocalDailyTest(unittest.TestCase):
         self.assertEqual(handler._context.verify_mode, ssl.CERT_REQUIRED)
         self.assertTrue(handler._context.check_hostname)
 
+    def test_command_runs_rules_even_when_fear_already_sent(self):
+        import types
+        fake = types.ModuleType('watch_rules')
+        fake.Store = lambda *args: object()
+        seen = []
+        fake.notify = lambda *args: seen.append(True) or {'action': 'rules_delivery_sent'}
+        daily.save(Path(self.tmp.name) / 'config.json', {'webhook': 'https://open.feishu.cn/open-apis/bot/v2/hook/example'})
+        with patch.object(daily, 'STATE', Path(self.tmp.name)), patch.object(daily, 'tick', return_value={'action':'already_sent'}), patch.object(daily, 'database_file', return_value='fake'), patch.dict('sys.modules', {'watch_rules':fake}):
+            result=daily.command_tick()
+        self.assertTrue(seen)
+        self.assertEqual(result['rules']['action'],'rules_delivery_sent')
+
+    def test_rules_failure_does_not_erase_fear_result(self):
+        import types
+        fake=types.ModuleType('watch_rules')
+        fake.Store=lambda *args: object()
+        def fail(*args): raise RuntimeError('rules failed')
+        fake.notify=fail
+        daily.save(Path(self.tmp.name) / 'config.json', {'webhook': 'https://open.feishu.cn/open-apis/bot/v2/hook/example'})
+        with patch.object(daily, 'STATE', Path(self.tmp.name)), patch.object(daily,'tick',return_value={'action':'delivery_sent'}), patch.object(daily,'database_file',return_value='fake'), patch.dict('sys.modules',{'watch_rules':fake}):
+            result=daily.command_tick()
+        self.assertEqual(result['action'],'delivery_sent')
+        self.assertEqual(result['rules']['action'],'rules_failed')
+
 
 if __name__ == '__main__':
     unittest.main()

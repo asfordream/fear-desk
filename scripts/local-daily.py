@@ -54,6 +54,7 @@ def load(path, default):
 def database_file():
     candidates = []
     for path in (ROOT / '.wrangler/state/v3/d1/miniflare-D1DatabaseObject').glob('*.sqlite'):
+        if not re.fullmatch(r'[a-f0-9]{64}\.sqlite', path.name):continue
         with closing(sqlite3.connect(f'file:{path}?mode=ro', uri=True)) as connection, connection:
             if connection.execute("SELECT 1 FROM sqlite_master WHERE name='instruments'").fetchone():
                 candidates.append(path)
@@ -237,7 +238,23 @@ def command_tick():
         config = load(STATE / 'config.json', {})
         if not re.fullmatch(r'https://open\.feishu\.cn/open-apis/bot/v2/hook/[a-zA-Z0-9-]+', config.get('webhook', '')):
             return {'action': 'configuration_required'}
-        return tick(STATE / 'state.json', config, audit=delivery_record)
+        try:
+            result = tick(STATE / 'state.json', config, audit=delivery_record)
+        except Exception:
+            result = {'action': 'daily_failed'}
+        # Independent delivery identity: an already-sent fear report does not suppress rules.
+        sys.path.insert(0, str(ROOT / 'local-review'))
+        try:
+            from watch_rules import Store, notify
+            result['rules'] = notify(Store(ROOT / '.review-state'), config, send_card)
+        except Exception:
+            try:
+                with Store(ROOT / '.review-state').db() as db:
+                    db.execute("INSERT OR REPLACE INTO meta VALUES('delivery_error',?)", ('规则计算或投递未完成，请核对行情与卡片大小；未确认送达',))
+            except Exception:
+                pass
+            result['rules'] = {'action': 'rules_failed', 'message': '规则计算或投递未完成，保留记录后续核对'}
+        return result
 
 
 def serve():

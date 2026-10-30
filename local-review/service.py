@@ -56,6 +56,20 @@ def create_app(root,token,port=18761,scheduled=False):
     async def locked(req,exc):return JSONResponse({'error':{'code':'STORE_UNAVAILABLE','message':'私人存储暂不可用，请重试','retryable':True}},503)
     @app.exception_handler(Exception)
     async def unexpected(req,exc):return JSONResponse({'error':{'code':'INTERNAL_ERROR','message':'处理失败，源数据已保留','retryable':True}},500)
+    from watch_rules import Store, RulesError
+    observations=Store(root)
+    @app.get('/api/review/v1/live/watch-rules')
+    def watch_list():
+        return {'data':observations.view()}
+    @app.post('/api/review/v1/live/watch-rules')
+    async def watch_change(req:Request):
+        try:
+            value=await body(req,['action','id','revision','title','kind','text','threshold','waitDays','enabled','ids','previousIds'])
+            if value.get('action')=='scan':observations.refresh()
+            else:observations.change(value)
+            return {'data':observations.view()}
+        except (ValueError, ArithmeticError):
+            return JSONResponse({'error':{'message':'规则操作失败：请核对字段、版本和交易日历，刷新后重试'}},422)
     @app.get('/api/review/v1/health')
     def health():
         from review.connector import doctor
