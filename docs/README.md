@@ -6,6 +6,8 @@
 - 本机整合版本：[v0.2.20](versions/v0.2.20/README.md)。完成状态以该版本验证记录为准。
 - 待开发功能：[交易规则与观察需求](features/trading-rules/draft/PRD.md)、[原型](features/trading-rules/draft/prototype.svg)。尚未分配发布版本，不能当成已实现。
 
+[新版本资料模板](templates/version/README.md)
+
 ## 目录约定
 
 | 目录 | 内容 |
@@ -16,6 +18,11 @@
 | `archive/legacy/` | 历史原始文档，保留原标题，不伪造所属发布版本 |
 
 新增版本使用 `PRD.md`、`architecture.md`、`verification.md`、`release.md`；原型放 `prototypes/`。不是每个旧版本都能补出真实PRD，不根据当前功能倒填历史。
+
+## 历史追溯
+
+- [跨旧目录的历史资料总索引](archive/history-index.md)：原始PRD、旧信号/复盘文档，按内容去重并保留来源。
+- [文件迁移映射](archive/document-moves.md)：项目内原路径与新路径。
 
 ## 日常入口
 
