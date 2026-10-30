@@ -1,6 +1,7 @@
-export const APP_VERSION='0.2.18';
-export const DEVELOPMENT_RELEASE={version:'0.2.18',status:'released',title:'简化主导航',limits:['本次仅调整导航入口。']} as const;
+export const APP_VERSION='0.2.19';
+export const DEVELOPMENT_RELEASE={version:'0.2.19',status:'released',title:'复盘总览中文命名',limits:['仅调整网页显示名称。']} as const;
 export const RELEASES=[
+ {version:'0.2.19',date:'2026-10-30',title:'复盘总览中文命名',changes:['网页导航及复盘页品牌名称统一显示为复盘总览。'],limits:['代码分支和页面地址保持原名称。']},
  {version:'0.2.18',date:'2026-10-30',title:'简化主导航',changes:['移除市场总览与个股页主导航中的计算口径快捷入口。'],limits:['本次不修改计算公式、数据或定时推送。']},
  {version:'0.2.17',date:'2026-10-29',title:'复盘导航入口补齐',changes:['收盘日报、历史日报及版本与需求页面补齐feardeskreview导航入口，切换页面后可直接返回复盘。'],limits:['仅更新复盘分支的本机页面；不更改信号计算或发送任务。']},
  {version:'0.2.16',date:'2026-10-29',title:'网页与定时推送共用信号数据',changes:['本机复盘网页的市场总览、个股与收盘日报统一访问定时推送使用的信号服务，私人账本保持独立。','信号服务不可用时明确提示，不回退到旧数据库；固定本机目标并保留同源检查。','市场总览定时刷新；总览和日报展示实际日期、更新时间及来源，日期未齐或长时间未更新时提示。'],limits:['信号服务需运行；历史冻结日报保留原日期。','本次不更新云端站点、不触发额外飞书推送。']},
