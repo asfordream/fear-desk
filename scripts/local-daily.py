@@ -120,7 +120,7 @@ def send_card(card, config):
     if ok and type(code) is int and code == 0:
         return {'status': 'sent', 'message': '飞书已确认接收'}
     if type(code) is int:
-        return {'status': 'failed', 'message': '飞书明确拒绝请求'}
+        return {'status': 'failed', 'message': '飞书明确拒绝请求（代码 ' + str(code) + '）'}
     return {'status': 'unknown', 'message': '没有明确回执，禁止自动重发'}
 
 

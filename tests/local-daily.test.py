@@ -180,6 +180,14 @@ class LocalDailyTest(unittest.TestCase):
                 opener.return_value.open.return_value = io.BytesIO(response)
                 self.assertEqual(daily.send_card({}, config)['status'], expected)
 
+    def test_feishu_rejection_retains_safe_error_code(self):
+        with patch.object(daily, 'opener') as opener:
+            opener.return_value.open.return_value = io.BytesIO(b'{"code":19024,"msg":"Key Words Not Found"}')
+            result = daily.send_card({}, {'webhook': 'https://open.feishu.cn/open-apis/bot/v2/hook/example'})
+            self.assertEqual(result['status'], 'failed')
+            self.assertIn('19024', result['message'])
+            self.assertNotIn('example', result['message'])
+
     def test_feishu_http_error_cannot_be_success(self):
         with patch.object(daily, 'opener') as opener:
             opener.return_value.open.side_effect = urllib.error.HTTPError('https://open.feishu.cn', 400, '', {}, io.BytesIO(b'{"code":0}'))

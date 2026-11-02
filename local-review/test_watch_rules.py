@@ -57,6 +57,8 @@ class RulesTests(unittest.TestCase):
   with self.assertRaises(RulesError):advance('2028-12-29',3)
  def test_effective_after_close_is_next_session(self):
   self.assertEqual(effective(clock('2026-10-02')),'2026-10-05');self.assertEqual(effective(clock('2026-10-02',10)),'2026-10-02')
+ def test_card_keeps_required_bot_keyword_without_rule_text_dependency(self):
+  self.rule();payload=card(self.s.view(clock('2026-10-02')));self.assertIn('恐慌',payload['header']['title']['content'])
  def test_empty_card_keeps_rules(self):
   self.rule();s=json.dumps(card(self.s.view(clock('2026-10-02'))),ensure_ascii=False);self.assertIn('暂无倒数',s);self.assertIn('等待观察',s)
  def test_delivery_has_own_dedupe_and_unknown_fence(self):

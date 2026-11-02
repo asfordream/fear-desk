@@ -202,7 +202,7 @@ def card(view):
     for i in active:md('**'+i['symbol']+'** · '+i['ruleTitle'].replace('*','')+'\n触发 '+i['trigger_day']+' · '+str(round(Decimal(i['change']),2))+'% · 观察 '+i['observe_day']+' · '+i['label']+(' · 剩余 '+str(i['remaining'])+' 个交易日' if i['remaining'] else ''))
     if not active:md('暂无倒数或待处理标的。')
     scan=view['scan'];md('行情截面 '+(scan['marketDate'] if scan else '未取得')+' · '+('缺数/待核对：'+'；'.join(scan['issues']) if scan and scan['issues'] else '数据按现有行情库核对')+'\n到期仅提醒观察；在本机网页手动标记已处理，不代表已经开仓。')
-    return {'schema':'2.0','header':{'title':{'tag':'plain_text','content':'FearDesk · 交易规则观察'},'template':'green'},'body':{'elements':elements}}
+    return {'schema':'2.0','header':{'title':{'tag':'plain_text','content':'FearDesk · 恐慌观察池 · 交易规则提醒'},'template':'green'},'body':{'elements':elements}}
 
 def notify(store,config,sender,clock=None):
     clock=clock or datetime.now(timezone.utc);day=clock.astimezone(BJ).date().isoformat()
