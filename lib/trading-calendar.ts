@@ -34,3 +34,17 @@ export function latestClosedTradingDay(now = new Date()) {
   }
   throw new Error('calendar_unavailable');
 }
+
+export function elapsedTradingDays(from: string, to: string) {
+  const start = Date.parse(from + 'T00:00Z');
+  const end = Date.parse(to + 'T00:00Z');
+  if (!Number.isFinite(start) || !Number.isFinite(end) || start > end ||
+      from < '2026-01-01' || to > '2028-12-31') return null;
+  let count = 0;
+  for (let time = start + 86400000; time <= end; time += 86400000) {
+    const date = new Date(time);
+    const weekday = date.getUTCDay();
+    if (weekday > 0 && weekday < 6 && !holidays.has(date.toISOString().slice(0, 10))) count++;
+  }
+  return count;
+}

@@ -15,8 +15,8 @@ class RulesTests(unittest.TestCase):
  def rule(self,**extra):return self.s.change({'action':'save','title':'等待观察','kind':'drop','threshold':'5','waitDays':3,**extra},clock('2026-09-30',10))
  def bars(self,rows):
   with sqlite3.connect(self.market) as c:c.executemany('INSERT OR REPLACE INTO bars VALUES("AAA",?,?)',rows)
- def test_exact_threshold_not_trigger(self):
-  self.rule();self.bars([('2026-09-30',100),('2026-10-01',95)]);self.s.refresh(clock('2026-10-01'));self.assertEqual(self.s.view()['items'],[])
+ def test_exact_threshold_triggers(self):
+  self.rule();self.bars([('2026-09-30',100),('2026-10-01',95)]);self.s.refresh(clock('2026-10-01'));self.assertEqual(len(self.s.view()['items']),1)
  def test_strict_threshold_triggers(self):
   self.rule();self.bars([('2026-09-30',100),('2026-10-01',94.99)]);self.s.refresh(clock('2026-10-01'));i=self.s.view(clock('2026-10-02'))['items'][0];self.assertEqual(i['observe_day'],'2026-10-06');self.assertEqual(i['remaining'],2)
  def test_recent_trigger_resets_and_retains_old(self):

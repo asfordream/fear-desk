@@ -171,7 +171,7 @@ class Store:
                             issues.append(symbol+'：相邻交易日数据待核对');continue
                         pct=(Decimal(str(bar['close']))/Decimal(str(prev['close']))-1)*100
                         c.execute('INSERT INTO evaluations VALUES(?,?,?,?)',key)
-                        if pct < -Decimal(body['threshold']):
+                        if pct <= -Decimal(body['threshold']):
                             c.execute("UPDATE items SET status='superseded',updated_at=? WHERE rule_id=? AND symbol=? AND status='active'",(stamp,rule['id'],symbol))
                             iid=uuid.uuid4().hex
                             c.execute('INSERT INTO items VALUES(?,?,?,?,?,?,?,\'active\',?,?)',(iid,rule['id'],v['version'],symbol,day,advance(day,body['waitDays']),str(pct),stamp,stamp))
@@ -194,7 +194,7 @@ def card(view):
     md('**每日交易规则** · '+view['today']+'（美东日期）')
     enabled=[r for r in view['rules'] if r['enabled']]
     for i,r in enumerate(enabled):
-        desc=('单日复权收盘跌幅严格超过 '+r['threshold']+'%，最近一次触发后第 '+str(r['waitDays'])+' 个交易日观察') if r['kind']=='drop' else r['text']
+        desc=('单日复权收盘跌幅达到 '+r['threshold']+'%，最近一次触发后第 '+str(r['waitDays'])+' 个交易日观察') if r['kind']=='drop' else r['text']
         md(str(i+1)+'. **'+r['title'].replace('*','')+'** · '+('自动筛选' if r['kind']=='drop' else '人工检查（不自动判定）')+'\n'+desc+'\n版本 '+str(r['version'])+' · 生效 '+r['effectiveDate'])
     if not enabled:md('暂无启用规则。')
     active=[i for i in view['items'] if i['status']=='active']

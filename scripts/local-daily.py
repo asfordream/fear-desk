@@ -132,6 +132,45 @@ def frozen_report(job):
     report, card = json.loads(row[0]), json.loads(row[1])
     if not report['summary']['complete'] or report['tradeDate'] != job['requestedClosedDay']:
         raise RuntimeError('日报不完整或日期落后，未发送')
+    sys.path.insert(0, str(ROOT / 'local-review'))
+    from watch_rules import Store, remaining
+    rules = Store(ROOT / '.review-state')
+    rules.refresh()
+    annotations = {}
+    for item in rules.view()['items']:
+        if item['status'] != 'active' or item['trigger_day'] > report['tradeDate']:
+            continue
+        days = remaining(item['trigger_day'], report['tradeDate'])
+        label = f"**<font color='green'>大跌</font>** {item['trigger_day']} {float(item['change']):.2f}% · 已过 {days} 个交易日"
+        if report['tradeDate'] >= item['observe_day']:
+            label += ' · 可观察'
+        annotations.setdefault(item['symbol'], []).append(label)
+
+    trade_date = dt.date.fromisoformat(report['tradeDate'])
+    for stock in report['stocks']:
+        info = stock.get('earningsInfo')
+        date = info.get('date') if info is not None else stock.get('eventDate')
+        if date:
+            days = (dt.date.fromisoformat(date) - trade_date).days
+            if 0 <= days <= 7:
+                annotations.setdefault(stock['symbol'], []).insert(0, f'财报 {date}（距财报 {days} 天）')
+
+    def annotate(match):
+        labels = annotations.get(match.group(2), [])
+        line = match.group(0)
+        for label in labels:
+            if label.startswith('财报 '):
+                bold = label.replace('财报 ', "**<font color='red'>财报</font>** ", 1)
+                line = line.replace(label, bold) if label in line else line + ' · ' + bold
+            else:
+                line += ' · ' + label
+        return line
+
+    for element in card['body']['elements']:
+        if element.get('tag') == 'markdown':
+            element['content'] = re.sub(r'(?m)^(★ \*\*([A-Z0-9.-]+)\*\*[^\n]*)', annotate, element['content'])
+            element['content'] = element['content'].replace(
+                '\n候选区（距击球≤10）：', '\n**候选区（距击球≤10）**：')
     card['header']['title']['content'] = 'FearDesk · 本地收盘日报 · ' + report['tradeDate']
     # No cloud report link: local IDs are not published to the retained cloud site.
     card['body']['elements'] = [element for element in card['body']['elements'] if element.get('tag') != 'button']

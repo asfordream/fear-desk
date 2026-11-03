@@ -51,9 +51,9 @@ function start(executable,args) {
 }
 start(python,[resolve(root,'local-review/service.py')]);
 start(process.execPath,[resolve(root,'scripts/run-framework.mjs'),'dev','--host','127.0.0.1','--port',String(webPort),'--strictPort']);
-const url = `http://127.0.0.1:${webPort}/review#local=${bootstrap}`;
+const url = `http://127.0.0.1:${webPort}/review`;
 await writeFile(resolve(state,'entry-url.txt'),url+'\n',{mode:0o600});
-console.log(`FearDesk 统一入口启动中：网页 ${webPort}，私人核算 ${servicePort}。本机解锁链接保存在 .review-state/entry-url.txt。`);
+console.log(`FearDesk 统一入口启动中：网页 ${webPort}，私人核算 ${servicePort}。本机入口链接保存在 .review-state/entry-url.txt。`);
 if (!process.argv.includes('--no-open')) {
   // Browser remains the only user entry; wait for readiness before opening.
   const ready = setInterval(async () => { try { const r=await fetch(`http://127.0.0.1:${webPort}/review`); if(r.ok) {clearInterval(ready);spawn('open',[url],{stdio:'ignore'});} } catch {} },1000);
