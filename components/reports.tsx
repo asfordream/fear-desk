@@ -1,5 +1,5 @@
 "use client";
-import {earningsCountdown} from '@/lib/report';
+import {earningsCountdown,FORM_NOTES} from '@/lib/report';
 import {elapsedTradingDays} from '@/lib/trading-calendar';
 import {useCallback,useEffect,useState,useRef} from 'react';
 import {Activity,ArrowLeft,Download,RefreshCw,Send,FileText,AlertCircle,ShieldCheck} from 'lucide-react';
@@ -13,10 +13,10 @@ type Status={pipeline:{current:{id:string;trade_date:string;created_at:string;co
 async function api<T>(url:string,method='GET',body?:unknown,signal?:AbortSignal):Promise<T>{const r=await fetch(url,{method,cache:'no-store',headers:body?{'Content-Type':'application/json'}:undefined,body:body?JSON.stringify(body):undefined,signal:signal??AbortSignal.timeout(20_000)});const x=await r.json() as {error?:string;data:T};if(r.status===401)throw new Error('请使用 ChatGPT 登录后查看');if(!r.ok)throw new Error(x.error??'请求失败');if(!Object.hasOwn(x,'data'))throw new Error('服务响应异常');return x.data;}
 const sign=changeArrow;
 type Observation={symbol:string;status:string;trigger_day:string;observe_day:string;change:string};
-function CompactStock({stock,tradeDate,observations}:{stock:ReportStock;tradeDate:string;observations:Observation[]}){const n=stockDelta(stock);return <p className="compact-stock">★ <b>{stock.symbol}</b>{compactName(stock)&&<>({compactName(stock)})</>} | ${stock.latest!.price.toFixed(2)} | <b>{stock.latest!.score}</b> <span className={n!==null&&n>0?'fear-up':n!==null&&n<0?'fear-down':''}>{changeArrow(n)}</span> <small>⚡收盘 · 形态：{stock.latest!.form}{stock.latest!.assessment==='通过公式筛选'?' · ✓筛选通过':''}</small>{earningsCountdown(stock,tradeDate)&&<> · <strong style={{color:"#c62828"}}>财报</strong>{earningsCountdown(stock,tradeDate).slice(2)}</>}{observations.filter(item=>item.symbol===stock.symbol&&item.status==='active').map(item=>{
+function CompactStock({stock,tradeDate,observations}:{stock:ReportStock;tradeDate:string;observations:Observation[]}){const n=stockDelta(stock);return <p className="compact-stock">★ <b>{stock.symbol}</b>{compactName(stock)&&<>({compactName(stock)})</>} | ${stock.latest!.price.toFixed(2)} | <b>{stock.latest!.score}</b> <span className={n!==null&&n>0?'fear-up':n!==null&&n<0?'fear-down':''}>{changeArrow(n)}</span> <small>⚡收盘 · 形态：<span title={FORM_NOTES[stock.latest!.form]}>{stock.latest!.form}</span>{stock.latest!.assessment==='通过公式筛选'?' · ✓筛选通过':''}</small><span style={{display:"block"}}>{earningsCountdown(stock,tradeDate)&&<> · <strong style={{color:"#c62828"}}>财报</strong>{earningsCountdown(stock,tradeDate).slice(2)}</>}{observations.filter(item=>item.symbol===stock.symbol&&item.status==='active').map(item=>{
  const days=elapsedTradingDays(item.trigger_day,tradeDate);
  return days===null?null:<span key={item.trigger_day+item.observe_day}> · <strong style={{color:"#137333"}}>大跌</strong> {item.trigger_day} {Number(item.change).toFixed(2)}% · 已过 {days} 个交易日{tradeDate>=item.observe_day?' · 可开仓':''}</span>;
- })}</p>;}
+ })}</span></p>;}
 const bj=(date:string)=>new Date(date).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai',hour12:false});
 export default function Reports({id}:{id?:string}){
  const [view,setView]=useState<{status:Status|null;saved:Saved|null}>({status:null,saved:null}),{status,saved}=view;

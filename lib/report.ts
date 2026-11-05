@@ -60,3 +60,12 @@ export function beijingReportCutoff(now:Date){
  const day=new Date(Date.UTC(Number(parts.year),Number(parts.month)-1,Number(parts.day))-86400000);
  return {date:day.toISOString().slice(0,10),ready:day.getUTCDay()>=1&&day.getUTCDay()<=5&&Number(parts.hour)*60+Number(parts.minute)>=840};
 }
+
+
+export const FORM_NOTES:Record<string,string>={
+ '观察期':'形态样本不足20个交易日。',
+ '常驻':'最近20个交易日中，至少11天恐慌值达到70。',
+ '转换观察':'未归为常驻，且最近连续至少5个交易日恐慌值达到70。',
+ '脉冲':'未归为前两类，最近20日内出现恐慌值达到70，随后最多10日内回落到55以下。',
+ '中性':'最近20个交易日未满足常驻、转换观察或脉冲条件。'
+};

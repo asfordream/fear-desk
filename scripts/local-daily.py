@@ -157,14 +157,15 @@ def frozen_report(job):
 
     def annotate(match):
         labels = annotations.get(match.group(2), [])
-        line = match.group(0)
+        line = re.sub(
+            r" · (?:\*\*)?(?:<font color=['\"]red['\"]>)?财报(?:</font>)?(?:\*\*)? \d{4}-\d{2}-\d{2}（距财报 \d+ 天）",
+            '', match.group(0))
+        formatted = []
         for label in labels:
             if label.startswith('财报 '):
-                bold = label.replace('财报 ', "**<font color='red'>财报</font>** ", 1)
-                line = line.replace(label, bold) if label in line else line + ' · ' + bold
-            else:
-                line += ' · ' + label
-        return line
+                label = label.replace('财报 ', "**<font color='red'>财报</font>** ", 1)
+            formatted.append(label)
+        return line + ('\n' + ' · '.join(formatted) if formatted else '')
 
     for element in card['body']['elements']:
         if element.get('tag') == 'markdown':
