@@ -15,7 +15,7 @@ const sign=changeArrow;
 type Observation={symbol:string;status:string;trigger_day:string;observe_day:string;change:string};
 function CompactStock({stock,tradeDate,observations}:{stock:ReportStock;tradeDate:string;observations:Observation[]}){const n=stockDelta(stock);return <p className="compact-stock">★ <b>{stock.symbol}</b>{compactName(stock)&&<>({compactName(stock)})</>} | ${stock.latest!.price.toFixed(2)} | <b>{stock.latest!.score}</b> <span className={n!==null&&n>0?'fear-up':n!==null&&n<0?'fear-down':''}>{changeArrow(n)}</span> <small>⚡收盘 · 形态：{stock.latest!.form}{stock.latest!.assessment==='通过公式筛选'?' · ✓筛选通过':''}</small>{earningsCountdown(stock,tradeDate)&&<> · <strong style={{color:"#c62828"}}>财报</strong>{earningsCountdown(stock,tradeDate).slice(2)}</>}{observations.filter(item=>item.symbol===stock.symbol&&item.status==='active').map(item=>{
  const days=elapsedTradingDays(item.trigger_day,tradeDate);
- return days===null?null:<span key={item.trigger_day+item.observe_day}> · <strong style={{color:"#137333"}}>大跌</strong> {item.trigger_day} {Number(item.change).toFixed(2)}% · 已过 {days} 个交易日{tradeDate>=item.observe_day?' · 可观察':''}</span>;
+ return days===null?null:<span key={item.trigger_day+item.observe_day}> · <strong style={{color:"#137333"}}>大跌</strong> {item.trigger_day} {Number(item.change).toFixed(2)}% · 已过 {days} 个交易日{tradeDate>=item.observe_day?' · 可开仓':''}</span>;
  })}</p>;}
 const bj=(date:string)=>new Date(date).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai',hour12:false});
 export default function Reports({id}:{id?:string}){

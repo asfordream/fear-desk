@@ -138,7 +138,12 @@ export async function runSlice(jobId:string,repository=new DailyRepository(),con
  }catch(error){
   if(error instanceof Incomplete){await repository.fail(fence,error.message,'partial');}
   else if(job.stage==='publish'&&await repository.revision()!==job.input_revision){await repository.reconcile(fence);}
-  else await repository.retry(fence,'本次分片未完成；检查点已保留，等待后台重试');
+  else {
+   const marketStage=job.stage==='resolveSPY'||job.stage==='fetchMarket';
+   const http=error instanceof Error ? /^Yahoo 返回 (\d{3})/.exec(error.message) : null;
+   const reason=http ? '行情源 HTTP '+http[1] : error instanceof Error && (['TimeoutError','AbortError'].includes(error.name)||error.message.startsWith('行情请求超时或中断')) ? '行情请求超时或中断' : '行情请求或解析失败';
+   await repository.retry(fence,marketStage ? job.stage+'：'+reason : '本次分片未完成；检查点已保留，等待后台重试');
+  }
   return {advanced:false};
  }
 }

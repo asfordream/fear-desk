@@ -143,7 +143,7 @@ def frozen_report(job):
         days = remaining(item['trigger_day'], report['tradeDate'])
         label = f"**<font color='green'>大跌</font>** {item['trigger_day']} {float(item['change']):.2f}% · 已过 {days} 个交易日"
         if report['tradeDate'] >= item['observe_day']:
-            label += ' · 可观察'
+            label += ' · 可开仓'
         annotations.setdefault(item['symbol'], []).append(label)
 
     trade_date = dt.date.fromisoformat(report['tradeDate'])
@@ -203,7 +203,21 @@ def tick(state_path, config, api_call=api, deliver=send_card, report_reader=froz
         'generation': 'pending', 'delivery': 'pending', 'sendAttempts': 0, 'generationAttempts': 0})
     if record['delivery'] in BLOCKED:
         return {'action': 'already_' + record['delivery'], 'day': day}
-    if record['generation'] in {'failed', 'partial'}:
+    if record['generation'] == 'failed':
+        retries = record.get('marketRestarts', 0)
+        if record.get('stage') not in {'resolveSPY', 'fetchMarket'} or retries >= 2:
+            return {'action': 'generation_failed', 'day': day}
+        failed_at = dt.datetime.fromisoformat(record['updatedAt'])
+        if stamp.timestamp() < failed_at.timestamp() + (retries + 1) * 600:
+            return {'action': 'market_recovery_wait', 'day': day}
+        record.setdefault('marketFailures', []).append({
+            'jobId': record.get('jobId'), 'stage': record['stage'],
+            'message': record.get('generationMessage'), 'failedAt': record['updatedAt'],
+        })
+        record.update(requestId=f'local-daily-{day}-market-{retries + 1}',
+                      marketRestarts=retries + 1, generation='pending', generationAttempts=0)
+        record.pop('jobId', None)
+    if record['generation'] == 'partial':
         return {'action': 'generation_failed', 'day': day}
     if record.get('nextRetryAt', 0) > stamp.timestamp():
         return {'action': 'retry_wait', 'day': day}
@@ -222,7 +236,7 @@ def tick(state_path, config, api_call=api, deliver=send_card, report_reader=froz
             job = next((job for job in status['pipeline']['jobs'] if job['id'] == record['jobId']), None)
             if not job:
                 raise RuntimeError('同一生成任务暂不可见')
-            record.update(generation=job['status'], checkpoint=job.get('checkpoint'), stage=job.get('stage'), updatedAt=clock().isoformat())
+            record.update(generation=job['status'], checkpoint=job.get('checkpoint'), stage=job.get('stage'), generationMessage=job.get('message'), updatedAt=clock().isoformat())
             save(state_path, state)
             if job['status'] in {'failed', 'partial'}:
                 return {'action': 'generation_failed', 'day': day}

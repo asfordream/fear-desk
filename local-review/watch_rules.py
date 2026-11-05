@@ -194,14 +194,9 @@ def card(view):
     md('**每日交易规则** · '+view['today']+'（美东日期）')
     enabled=[r for r in view['rules'] if r['enabled']]
     for i,r in enumerate(enabled):
-        desc=('单日复权收盘跌幅达到 '+r['threshold']+'%，最近一次触发后第 '+str(r['waitDays'])+' 个交易日观察') if r['kind']=='drop' else r['text']
+        desc=('单日复权收盘跌幅达到 '+r['threshold']+'%，最近一次触发后第 '+str(r['waitDays'])+' 个交易日观察') if r['kind']=='drop' else ('' if r['text']==r['title'] else r['text'])
         md(str(i+1)+'. **'+r['title'].replace('*','')+'** · '+('自动筛选' if r['kind']=='drop' else '人工检查（不自动判定）')+'\n'+desc+'\n版本 '+str(r['version'])+' · 生效 '+r['effectiveDate'])
     if not enabled:md('暂无启用规则。')
-    active=[i for i in view['items'] if i['status']=='active']
-    md('**观察清单**')
-    for i in active:md('**'+i['symbol']+'** · '+i['ruleTitle'].replace('*','')+'\n触发 '+i['trigger_day']+' · '+str(round(Decimal(i['change']),2))+'% · 观察 '+i['observe_day']+' · '+i['label']+(' · 剩余 '+str(i['remaining'])+' 个交易日' if i['remaining'] else ''))
-    if not active:md('暂无倒数或待处理标的。')
-    scan=view['scan'];md('行情截面 '+(scan['marketDate'] if scan else '未取得')+' · '+('缺数/待核对：'+'；'.join(scan['issues']) if scan and scan['issues'] else '数据按现有行情库核对')+'\n到期仅提醒观察；在本机网页手动标记已处理，不代表已经开仓。')
     return {'schema':'2.0','header':{'title':{'tag':'plain_text','content':'FearDesk · 恐慌观察池 · 交易规则提醒'},'template':'green'},'body':{'elements':elements}}
 
 def notify(store,config,sender,clock=None):

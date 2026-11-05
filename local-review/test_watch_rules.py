@@ -60,7 +60,7 @@ class RulesTests(unittest.TestCase):
  def test_card_keeps_required_bot_keyword_without_rule_text_dependency(self):
   self.rule();payload=card(self.s.view(clock('2026-10-02')));self.assertIn('恐慌',payload['header']['title']['content'])
  def test_empty_card_keeps_rules(self):
-  self.rule();s=json.dumps(card(self.s.view(clock('2026-10-02'))),ensure_ascii=False);self.assertIn('暂无倒数',s);self.assertIn('等待观察',s)
+  self.rule();s=json.dumps(card(self.s.view(clock('2026-10-02'))),ensure_ascii=False);self.assertNotIn('观察清单',s);self.assertIn('等待观察',s)
  def test_delivery_has_own_dedupe_and_unknown_fence(self):
   self.rule();self.bars([('2026-09-30',100),('2026-10-01',94)]);config={'rulesEnabled':True,'rulesStartDate':'2026-10-02','webhook':'fake'};now=clock('2026-10-02',3);sent=[]
   def send(*args):sent.append(1);return {'status':'unknown','message':'不确定'}

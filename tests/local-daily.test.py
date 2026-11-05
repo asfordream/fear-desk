@@ -57,6 +57,17 @@ class LocalDailyTest(unittest.TestCase):
         self.assertEqual(len(self.requests), calls)
         self.assertEqual(self.sends, 1)
 
+    def test_market_failure_recovers_on_later_tick_without_duplicate_delivery(self):
+        self.job.update(status='failed', stage='resolveSPY')
+        self.assertEqual(self.run_tick()['action'], 'generation_failed')
+        self.assertEqual(self.run_tick()['action'], 'market_recovery_wait')
+        later = self.clock() + dt.timedelta(minutes=10)
+        self.job.update(id='job2', status='ready')
+        self.assertEqual(self.run_tick(clock=lambda: later)['action'], 'delivery_sent')
+        self.assertEqual(self.requests[-2]['requestId'], 'local-daily-2026-10-23-market-1')
+        self.assertEqual(self.run_tick(clock=lambda: later)['action'], 'already_sent')
+        self.assertEqual(self.sends, 1)
+
     def test_manual_sent_today_seed_does_not_send_again(self):
         daily.save(self.path, {'occurrences': {'2026-10-23': {'delivery': 'sent'}}})
         self.assertEqual(self.run_tick()['action'], 'already_sent')
