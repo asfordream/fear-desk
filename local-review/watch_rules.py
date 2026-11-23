@@ -41,12 +41,18 @@ def closed(clock):
         d-=timedelta(days=1)
     raise RulesError('无法确定已收盘交易日')
 
-def remaining(today,target):
-    d=date.fromisoformat(today);t=date.fromisoformat(target);n=0
-    while d<t:
-        d+=timedelta(days=1)
-        if session(d):n+=1
-    return n
+def elapsed_trading_dates(start, end):
+    day = date.fromisoformat(start)
+    cutoff = date.fromisoformat(end)
+    dates = []
+    while day < cutoff:
+        day += timedelta(days=1)
+        if session(day):
+            dates.append(day.isoformat())
+    return dates
+
+def remaining(today, target):
+    return len(elapsed_trading_dates(today, target))
 
 def market_snapshot():
     class NoRedirect(urllib.request.HTTPRedirectHandler):

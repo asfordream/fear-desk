@@ -1,6 +1,6 @@
 import {getRequestExecutionContext} from 'vinext/shims/request-context';
 import {VERSION,calculate,type EventDecision} from './engine';
-import {CARD_FORMAT_VERSION,summarize,renderCard,publicBase,type ReportSnapshot,type ReportStock} from './report';
+import {CARD_FORMAT_VERSION,summarize,latestRise,renderCard,publicBase,type ReportSnapshot,type ReportStock} from './report';
 import {hashFacts,jobDto,validRequestId,TERMINAL_STATUSES,type DailyJobRow} from './daily-contract';
 import {DailyRepository} from './daily-repository';
 import {latestClosedTradingDay,scheduledReportWindow} from './trading-calendar';
@@ -108,7 +108,7 @@ export async function runSlice(jobId:string,repository=new DailyRepository(),con
    if(!market||!spy||!earnings)throw new Incomplete('冻结输入不完整，禁止计算混合截面');
    const rows=calculate(market.bars,spy.bars,earnings.events);signal.throwIfAborted();
    const previousDate=spy.bars.at(-2)?.date??null;
-   const stock:ReportStock={symbol:item.symbol,name:item.name,status:'ready',eventDate:earnings.info?.date??null,earningsInfo:earnings.info,
+   const stock:ReportStock={symbol:item.symbol,name:item.name,status:'ready',eventDate:earnings.info?.date??null,earningsInfo:earnings.info,rise:latestRise(market.bars,job.trade_date),
      latest:rows.find(r=>r.date===job.trade_date)??null,previous:rows.find(r=>r.date===previousDate)??null};
    if(!stock.latest||stock.latest.version!==VERSION)throw new Incomplete('目标评分行缺失或版本不一致');
    const semantic=earnings.info?{date:earnings.info.date,endDate:earnings.info.endDate,status:earnings.info.status,timing:earnings.info.timing,source:earnings.info.source,sourceUrl:earnings.info.sourceUrl,mode:earnings.info.mode}:null;

@@ -3,7 +3,7 @@ import {ensureInitial,syncAll} from './store';
 import {refreshEarnings} from './earnings';
 import {readEarnings} from './earnings-read';
 import {VERSION,type Score} from './engine';
-import {summarize,renderCard,CARD_FORMAT_VERSION,publicBase,beijingReportCutoff,type ReportStock,type ReportSnapshot} from './report';
+import {summarize,latestRise,renderCard,CARD_FORMAT_VERSION,publicBase,beijingReportCutoff,type ReportStock,type ReportSnapshot} from './report';
 import {postCard,validateWebhook,type BotConfig} from './feishu';
 
 const db=()=>getRawDb();
@@ -15,7 +15,7 @@ export async function generateReport(config:BotConfig={},expectedDate?:string){
  const previousDate=dates[1]?.date??null;
  const items=(await db().prepare("SELECT symbol,name,status,event_date FROM instruments WHERE active=1 AND symbol!='SPY' ORDER BY symbol").all<{symbol:string;name:string;status:string;event_date:string|null}>()).results;
  const stocks:ReportStock[]=[];
- for(const item of items){const history=(await db().prepare('SELECT date,payload FROM scores WHERE symbol=? AND date IN (?,?) ORDER BY date DESC').bind(item.symbol,tradeDate,previousDate).all<{date:string;payload:string}>()).results;stocks.push({symbol:item.symbol,name:item.name,status:item.status,eventDate:item.event_date,earningsInfo:await readEarnings(item.symbol),latest:history.find(s=>s.date===tradeDate)?JSON.parse(history.find(s=>s.date===tradeDate)!.payload) as Score:null,previous:history.find(s=>s.date===previousDate)?JSON.parse(history.find(s=>s.date===previousDate)!.payload) as Score:null});}
+ for(const item of items){const history=(await db().prepare('SELECT date,payload FROM scores WHERE symbol=? AND date IN (?,?) ORDER BY date DESC').bind(item.symbol,tradeDate,previousDate).all<{date:string;payload:string}>()).results;stocks.push({symbol:item.symbol,name:item.name,status:item.status,eventDate:item.event_date,earningsInfo:await readEarnings(item.symbol),rise:latestRise((await db().prepare('SELECT date,close FROM bars WHERE symbol=? AND date<=? ORDER BY date DESC LIMIT 12').bind(item.symbol,tradeDate).all<{date:string;close:number}>()).results.reverse(),tradeDate),latest:history.find(s=>s.date===tradeDate)?JSON.parse(history.find(s=>s.date===tradeDate)!.payload) as Score:null,previous:history.find(s=>s.date===previousDate)?JSON.parse(history.find(s=>s.date===previousDate)!.payload) as Score:null});}
  const watchlistHash=await digest(items.map(x=>({symbol:x.symbol,name:x.name,eventDate:x.event_date})));
  const facts={tradeDate,previousDate,version:VERSION,watchlistHash,stocks,summary:summarize(stocks,tradeDate,previousDate)};
  const base=publicBase(config.SITE_BASE_URL);const id=await digest({facts,base,cardFormatVersion:CARD_FORMAT_VERSION});

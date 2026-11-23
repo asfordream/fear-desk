@@ -33,3 +33,17 @@ test('飞书非折叠分区包含超过10只的全部标的，45只卡片在发�
  const card=renderCard(r,'https://desk.example.com');assert.match(JSON.stringify(card),/TEST44/);
  let called=false;assert.equal((await postCard(card,config,async()=>{called=true;return Response.json({code:0});})).status,'sent');assert.equal(called,true);
 });
+
+test('大涨以最近一次达到7%为准，保留到第10个交易日',async()=>{
+ const {latestRise}=await import('../lib/report.ts');
+ const bars=[{date:'2026-11-05',close:100},{date:'2026-11-06',close:107}];
+ assert.equal(latestRise(bars,'2026-11-06').days,0);
+ assert.equal(latestRise(bars,'2026-11-20').days,10);
+ assert.equal(latestRise(bars,'2026-11-23'),null);
+ assert.equal(latestRise([...bars,{date:'2026-11-09',close:120}],'2026-11-09').date,'2026-11-09');
+ assert.equal(latestRise([{date:'2026-11-05',close:100},{date:'2026-11-09',close:130}],'2026-11-09'),null);
+ assert.equal(latestRise([{date:'2026-11-05',close:100},{date:'2026-11-06',close:106.99}],'2026-11-06'),null);
+ const stocks=[{...stock('A',60),rise:latestRise(bars,'2026-11-06')}];
+ const snapshot={id:'a'.repeat(64),tradeDate:'2026-09-29',previousDate:'2026-09-28',generatedAt:'2026-09-30T00:00Z',version:'v1',stocks,summary:summarize(stocks,'2026-09-29','2026-09-28')};
+ assert.ok(renderCard(snapshot,null).body.elements.some(e=>e.content?.includes("\n**<font color='red'>大涨</font>** 2026-11-06 +7.00%")));
+});

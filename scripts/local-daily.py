@@ -133,16 +133,21 @@ def frozen_report(job):
     if not report['summary']['complete'] or report['tradeDate'] != job['requestedClosedDay']:
         raise RuntimeError('日报不完整或日期落后，未发送')
     sys.path.insert(0, str(ROOT / 'local-review'))
-    from watch_rules import Store, remaining
+    from watch_rules import Store, elapsed_trading_dates
     rules = Store(ROOT / '.review-state')
     rules.refresh()
     annotations = {}
     for item in rules.view()['items']:
         if item['status'] != 'active' or item['trigger_day'] > report['tradeDate']:
             continue
-        days = remaining(item['trigger_day'], report['tradeDate'])
+        dates = elapsed_trading_dates(item['trigger_day'], report['tradeDate'])
+        if len(dates) > 10:
+            continue
+        days = len(dates)
         label = f"**<font color='green'>大跌</font>** {item['trigger_day']} {float(item['change']):.2f}% · 已过 {days} 个交易日"
-        if report['tradeDate'] >= item['observe_day']:
+        if dates:
+            label += f"（{item['trigger_day'][5:]}）"
+        if days > 2:
             label += ' · 可开仓'
         annotations.setdefault(item['symbol'], []).append(label)
 
@@ -159,17 +164,20 @@ def frozen_report(job):
         labels = annotations.get(match.group(2), [])
         line = re.sub(
             r" · (?:\*\*)?(?:<font color=['\"]red['\"]>)?财报(?:</font>)?(?:\*\*)? \d{4}-\d{2}-\d{2}（距财报 \d+ 天）",
-            '', match.group(0))
+            '', match.group(1))
         formatted = []
         for label in labels:
             if label.startswith('财报 '):
                 label = label.replace('财报 ', "**<font color='red'>财报</font>** ", 1)
             formatted.append(label)
-        return line + ('\n' + ' · '.join(formatted) if formatted else '')
+        rise = match.group(3)
+        if rise:
+            formatted.append(rise)
+        return line.split('\n', 1)[0] + ('\n' + ' · '.join(formatted) if formatted else '')
 
     for element in card['body']['elements']:
         if element.get('tag') == 'markdown':
-            element['content'] = re.sub(r'(?m)^(★ \*\*([A-Z0-9.-]+)\*\*[^\n]*)', annotate, element['content'])
+            element['content'] = re.sub(r"(?m)^(★ \*\*([A-Z0-9.-]+)\*\*[^\n]*)(?:\n(\*\*<font color='red'>大涨</font>\*\* [^\n]+))?", annotate, element['content'])
             element['content'] = element['content'].replace(
                 '\n候选区（距击球≤10）：', '\n**候选区（距击球≤10）**：')
     card['header']['title']['content'] = 'FearDesk · 本地收盘日报 · ' + report['tradeDate']

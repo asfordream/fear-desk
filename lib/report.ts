@@ -1,10 +1,28 @@
+import {elapsedTradingDays} from './trading-calendar.ts';
 import {earningsLabel,type EarningsInfo} from './earnings-provider.ts';
 import {GROUPS,type Score} from './engine.ts';
 
 export const CARD_FORMAT_VERSION='2.0-compact-v1';
 export const BANDS=[{name:'击球区',min:75,range:'≥75',icon:'⚾'},{name:'底部区',min:60,range:'60–74',icon:'🔻'},{name:'恐慌区',min:50,range:'50–59',icon:'😰'},{name:'贪婪区',min:0,range:'<50',icon:'🟢'}] as const;
 export function fearBand(score:number){return BANDS.find(b=>score>=b.min)!.name;}
-export type ReportStock={symbol:string;name:string;status:string;eventDate:string|null;earningsInfo?:EarningsInfo|null;latest:Score|null;previous:Score|null};
+export type RiseEvent={date:string;percent:number;days:number};
+
+export function latestRise(bars:readonly {date:string;close:number}[],tradeDate:string):RiseEvent|null{
+ for(let i=bars.length-1;i>0;i--){
+  const current=bars[i],previous=bars[i-1];
+  if(current.date>tradeDate)continue;
+  const days=elapsedTradingDays(current.date,tradeDate);
+  if(days===null||days>10)break;
+  if(elapsedTradingDays(previous.date,current.date)!==1||
+     !Number.isFinite(current.close)||!Number.isFinite(previous.close)||previous.close<=0)continue;
+  const ratio=current.close/previous.close;
+  // Tolerate binary floating-point error at the exact 7% boundary.
+  if(ratio>=1.07-Number.EPSILON)return {date:current.date,percent:(ratio-1)*100,days};
+ }
+ return null;
+}
+
+export type ReportStock={symbol:string;name:string;status:string;eventDate:string|null;earningsInfo?:EarningsInfo|null;rise?:RiseEvent|null;latest:Score|null;previous:Score|null};
 export function summarize(stocks:ReportStock[],tradeDate:string,previousDate:string|null){
  const valid=stocks.filter(s=>s.latest?.date===tradeDate&&s.latest.score!==null&&s.latest.total!==null);
  const paired=valid.filter(s=>s.previous?.date===previousDate&&s.previous?.score!=null&&s.previous.total!==null&&s.previous.version===s.latest!.version);
@@ -45,7 +63,8 @@ export function renderCard(report:ReportSnapshot,base:string|null){
  const {summary:s}=report;const valid=reportStocks(report),changes=reportChanges(report),earnings=upcomingEarnings(report);
  const md=(content:string)=>({tag:'markdown',content});
  const coloredChange=(n:number|null)=>n===null||Math.round(Math.abs(n))===0?changeArrow(n):`<font color='${n>0?'red':'green'}'>${changeArrow(n)}</font>`;
- const stockText=(x:ReportStock)=>`★ **${x.symbol}**${compactName(x)?'('+escapeMarkdown(compactName(x))+')':''} | $${x.latest!.price.toFixed(2)} | **${x.latest!.score}** ${coloredChange(stockDelta(x))} ⚡收盘 · 形态：${escapeMarkdown(x.latest!.form)}${x.latest!.assessment==='通过公式筛选'?' · ✓筛选通过':''}${earningsCountdown(x,report.tradeDate)?' · '+earningsCountdown(x,report.tradeDate).replace('财报 ',"**<font color='red'>财报</font>** "):''}`;
+ const riseText=(x:ReportStock)=>x.rise?`**<font color='red'>大涨</font>** ${x.rise.date} +${x.rise.percent.toFixed(2)}% · 已过 ${x.rise.days} 个交易日`:'';
+ const stockText=(x:ReportStock)=>`★ **${x.symbol}**${compactName(x)?'('+escapeMarkdown(compactName(x))+')':''} | $${x.latest!.price.toFixed(2)} | **${x.latest!.score}** ${coloredChange(stockDelta(x))} ⚡收盘 · 形态：${escapeMarkdown(x.latest!.form)}${x.latest!.assessment==='通过公式筛选'?' · ✓筛选通过':''}${earningsCountdown(x,report.tradeDate)?' · '+earningsCountdown(x,report.tradeDate).replace('财报 ',"**<font color='red'>财报</font>** "):''}${x.rise?'\n'+riseText(x):''}`;
  const candidates=candidateStocks(report);
  const elements:Record<string,unknown>[]=[md(`**🇺🇸 美股 · 整体 ${s.mean===null?'—':s.mean.toFixed(0)} ${coloredChange(s.delta)}**\n${s.bands.map(b=>b.icon+b.count+b.name).join(' · ')}\n有效 ${s.valid}/${s.total} · σ=${s.sigma===null?'—':s.sigma.toFixed(0)} · 极差=${s.range??'—'}`),md(`🕐 收盘截面 ${report.tradeDate} · FearDesk 引擎`),...(bottomCluster(report)?[md(bottomCluster(report))]:[]),md('**📈 最大变化**\n'+(changes.length?changes.map(x=>`**${x.symbol}** | ${x.latest!.score} ${coloredChange(stockDelta(x))} ⚡收盘${transitionLabel(x,report)?' | '+transitionLabel(x,report):''}`).join('\n'):'暂无可比较标的')),md('**📊 情绪分层**'),...BANDS.map(b=>{const rows=valid.filter(x=>fearBand(x.latest!.score!)===b.name);const candidate=b.name==='击球区'&&candidates.length?'**候选区（距击球≤10）**：'+candidates.map(x=>x.symbol+' '+x.latest!.score+'（差'+(75-x.latest!.score!)+')').join(' / '):'';return md(`**${b.icon} ${b.name}（${b.range}）· ${rows.length}只**\n${rows.length?rows.map(stockText).join('\n'):'暂无标的'}${candidate?'\n'+candidate:''}`);}),{tag:'hr'},md(`**📅 近期财报 · 未来7自然日**\n${earnings.length?earnings.map(x=>x.symbol+' | '+earningsLabel(x.earningsInfo,x.eventDate)+(x.earningsInfo?.sourceUrl?' | ['+(x.earningsInfo.source??'来源')+']('+x.earningsInfo.sourceUrl+')':'' )+(x.earningsInfo?.error?' · 来源待核对':'')).join('\n'):'暂无已知事件'}\n日期缺失 ${report.stocks.filter(x=>x.earningsInfo?!x.earningsInfo.date:!x.eventDate).length}只；未知不代表没有财报。`),md(`**数据状态**\n${s.complete?'行情截面齐全':'覆盖不足，禁止自动推送'} · 预热 ${s.warming}只 · 比较样本 ${s.paired}\n${s.stale.length?'旧截面/缺数：'+s.stale.join('/')+'\n':''}${s.failed.length?'更新未完成：'+s.failed.join('/')+'\n':''}恐慌值与形态独立；筛选通过标记独立展示。PCR待完善，含已知财报修正（3自然日窗口）。\nYahoo Finance · SPY基准 · 生成 BJ ${new Date(report.generatedAt).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai',hour12:false})}`)];
  if(base)elements.push({tag:'button',text:{tag:'plain_text',content:'查看完整日报'},type:'primary',behaviors:[{type:'open_url',default_url:base+'/reports/'+report.id}]});
