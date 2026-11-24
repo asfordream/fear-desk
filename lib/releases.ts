@@ -1,6 +1,7 @@
-export const APP_VERSION='0.3.8';
+export const APP_VERSION='0.3.9';
 export const DEVELOPMENT_RELEASE={version:APP_VERSION,status:'released',title:'观察池整体恐慌值走势',limits:['历史基于已保存的完整收盘日报。']} as const;
 export const RELEASES=[
+ {version:'0.3.9',date:'2026-11-24',title:'本地收盘日报改为中午12点',changes:['本地收盘日报在北京时间周一至周六中午12点自动生成并推送。'],limits:['定时送达以实际飞书回执为准。']},
  {version:'0.3.8',date:'2026-11-24',title:'本地收盘日报改为早上9点',changes:['本地收盘日报改在北京时间周一至周六早上9点自动生成并推送。'],limits:['首次9点自动送达需核对实际飞书回执。']},
  {version:'0.3.7',date:'2026-11-24',title:'日报涨跌事件按日期排序',changes:['网页和本地飞书日报的个股第二行，按大涨和大跌的触发日期从新到旧排列。两种事件仍各自计数。'],limits:[]},
  {version:'0.3.6',date:'2026-11-24',title:'收盘日报新增大涨标注',changes:['复权收盘单日涨幅达到7%时记录大涨，第11个交易日起退出日报展示。','网页和本地飞书在个股第二行展示大涨和大跌，各自计数。'],limits:['大涨记录随新生成的日报保存。']},

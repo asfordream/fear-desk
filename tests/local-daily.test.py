@@ -43,11 +43,11 @@ class LocalDailyTest(unittest.TestCase):
         return daily.tick(self.path, {}, **args)
 
     def test_beijing_window_and_sunday(self):
-        for stamp, expected in [('2026-10-23T08:59:00+08:00', False),
-                                ('2026-10-23T09:00:00+08:00', True),
-                                ('2026-10-24T09:00:00+08:00', True),
-                                ('2026-10-25T09:00:00+08:00', False),
-                                ('2026-10-26T01:00:00+00:00', True)]:
+        for stamp, expected in [('2026-10-23T11:59:00+08:00', False),
+                                ('2026-10-23T12:00:00+08:00', True),
+                                ('2026-10-24T12:00:00+08:00', True),
+                                ('2026-10-25T12:00:00+08:00', False),
+                                ('2026-10-26T04:00:00+00:00', True)]:
             self.assertEqual(daily.due(dt.datetime.fromisoformat(stamp)), expected)
 
     def test_ready_sends_once_and_second_tick_is_read_only(self):

@@ -33,7 +33,7 @@ def now():
 
 def due(stamp):
     stamp = stamp.astimezone(TZ)
-    return stamp.weekday() < 6 and (stamp.hour, stamp.minute) >= (9, 0)
+    return stamp.weekday() < 6 and (stamp.hour, stamp.minute) >= (12, 0)
 
 
 def save(path, value):
@@ -344,7 +344,7 @@ def install():
     logs = Path.home() / 'Library/Logs/FearDesk'
     logs.mkdir(parents=True, exist_ok=True, mode=0o700)
     for suffix, extra in [('review', {'KeepAlive': True}), ('daily', {
-        'StartInterval': 300, 'StartCalendarInterval': {'Hour': 9, 'Minute': 0}})]:
+        'StartInterval': 300, 'StartCalendarInterval': {'Hour': 12, 'Minute': 0}})]:
         label = 'cn.feardesk.local.' + suffix
         value = {'Label': label, 'ProgramArguments': [config['python'], str(Path(__file__).resolve()),
             'serve' if suffix == 'review' else 'tick'], 'WorkingDirectory': str(ROOT),
